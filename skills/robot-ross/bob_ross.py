@@ -44,6 +44,15 @@ COMMENTARY_INTERVAL = 6
 # Log file
 LOG_FILE = os.path.join(SCRIPT_DIR, "bob_ross.log")
 
+# Telegram preview config
+TELEGRAM_CHAT_ID  = "997912895"
+PENDING_STATE     = "/tmp/robot_ross_pending.json"
+JOB_LOCK          = "/tmp/robot_ross_running.lock"
+SEGMENTS_MIN      = 2000
+SEGMENTS_MAX      = 8000
+SEGMENTS_STEP     = 1000
+SEGMENTS_DEFAULT  = 4000
+
 
 def log(event, detail=""):
     """Append a timestamped log entry."""
@@ -57,6 +66,115 @@ def log(event, detail=""):
     except Exception:
         pass  # never let logging break the main flow
     print(line)
+
+
+# ── Telegram preview helpers ──────────────────────────────────────────────────
+def svg_to_png(svg_path, png_path):
+    """Render SVG to PNG using qlmanage (macOS built-in)."""
+    try:
+        out_dir = os.path.dirname(png_path)
+        result = subprocess.run(
+            ["qlmanage", "-t", "-s", "1200", "-o", out_dir, svg_path],
+            capture_output=True, timeout=30,
+        )
+        # qlmanage saves as <filename>.svg.png
+        ql_out = svg_path + ".png"
+        if os.path.exists(ql_out):
+            os.rename(ql_out, png_path)
+            return True
+        print(f"  ⚠  qlmanage did not produce output")
+        return False
+    except Exception as e:
+        print(f"  ⚠  svg_to_png failed: {e}")
+        return False
+
+
+def send_telegram_preview(png_path, caption):
+    """Send a PNG preview to Telegram via openclaw CLI."""
+    try:
+        result = subprocess.run(
+            ["openclaw", "message", "send",
+             "--channel", "telegram",
+             "--target", TELEGRAM_CHAT_ID,
+             "--message", caption,
+             "--media", png_path],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode == 0:
+            print("  ✅ Preview sent to Telegram")
+            return True
+        else:
+            print(f"  ⚠  Telegram send failed: {result.stderr.decode()[:200]}")
+            return False
+    except Exception as e:
+        print(f"  ⚠  Telegram send error: {e}")
+        return False
+
+
+def write_pending(image_path, svg_path, segments, max_px, blur):
+    """Save pending draw state to temp file."""
+    state = {"image_path": image_path, "svg_path": svg_path,
+             "segments": segments, "max_px": max_px, "blur": blur}
+    with open(PENDING_STATE, "w") as f:
+        json.dump(state, f)
+    print(f"  💾 Pending state saved: {segments} segments, max_px={max_px}, blur={blur}")
+
+
+def read_pending():
+    """Load pending draw state. Returns dict or None."""
+    if not os.path.exists(PENDING_STATE):
+        print("  ❌ No pending drawing found. Send a photo first.")
+        return None
+    with open(PENDING_STATE) as f:
+        return json.load(f)
+
+
+def preview_image(image_path, target_segments, max_px=800, blur=1.5):
+    """Convert image → SVG at target segments → PNG → send to Telegram."""
+    svg_path = os.path.splitext(image_path)[0] + "_traced.svg"
+    png_path = os.path.splitext(image_path)[0] + "_preview.png"
+
+    print(f"  🖼  Converting image → SVG (target {target_segments} segs, max_px={max_px}, blur={blur})...")
+    convert_cmd = [
+        sys.executable,
+        os.path.join(HUENIT_DIR, "image_to_svg.py"),
+        image_path, "--out", svg_path,
+        "--edges", "--auto",
+        "--max-px", str(max_px),
+        "--blur", str(blur),
+    ]
+    env = os.environ.copy()
+    env["IMAGE_SVG_TARGET"] = str(target_segments)
+    result = subprocess.run(convert_cmd, capture_output=False, env=env)
+    if result.returncode != 0:
+        print("  ❌ Image conversion failed")
+        return False
+
+    print("  🖼  Rendering SVG preview...")
+    if not svg_to_png(svg_path, png_path):
+        print("  ⚠  Could not render preview PNG")
+        return False
+
+    # Count actual segments from SVG
+    try:
+        with open(svg_path) as f:
+            content = f.read()
+        segs = sum(content.count(f' {c}') + content.count(f',{c}') + content.count(f'"{c}')
+                   for c in ['L', 'C', 'Q'])
+        est_min = segs // 500 + 1
+    except Exception:
+        segs, est_min = target_segments, "?"
+
+    caption = (
+        f"🎨 Preview ready! ~{segs} segments, est. {est_min} min to draw.\n\n"
+        f"Reply with:\n"
+        f"  draw — start drawing now\n"
+        f"  more detail — increase detail (+1000, max {SEGMENTS_MAX})\n"
+        f"  less detail — reduce detail (-1000, min {SEGMENTS_MIN})"
+    )
+    send_telegram_preview(png_path, caption)
+    write_pending(image_path, svg_path, segs, max_px, blur)
+    return True
 
 
 # ── Shared state ──────────────────────────────────────────────────────────────
@@ -155,8 +273,10 @@ def generate_narration(action, content):
             action_desc = f"write {len(text_lines)} lines of text: {' / '.join(text_lines)}"
         else:
             action_desc = f"write the text '{content}'"
+    elif action == "image":
+        action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
-        action_desc = f"draw a vector illustration from the file '{os.path.basename(content)}'"
+        action_desc = "draw a vector illustration"
     else:
         action_desc = f"draw a {content}"
 
@@ -248,7 +368,29 @@ def run_draw(action, content, size=None):
         if size:
             cmd.append(str(size))
     elif action == "svg":
-        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), content]
+        # Resolve bare filename → ~/Downloads/filename
+        svg_path = content
+        if not os.path.dirname(svg_path):
+            svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
+        if size:
+            cmd += ["--size", str(size)]
+    elif action == "image":
+        # Convert image → SVG, then draw
+        img_path = os.path.expanduser(content)
+        svg_path = os.path.splitext(img_path)[0] + "_traced.svg"
+        print(f"  🖼  Converting image to SVG: {img_path}")
+        convert_cmd = [
+            py, os.path.join(HUENIT_DIR, "image_to_svg.py"),
+            img_path, "--out", svg_path,
+        ]
+        result = subprocess.run(convert_cmd, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            err = (result.stderr or b"").decode(errors="replace").strip()
+            print(f"  ❌ Image conversion failed: {err[:300]}")
+            return False
+        print(f"  ✅ SVG ready: {svg_path}")
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
         if size:
             cmd += ["--size", str(size)]
     else:
@@ -303,6 +445,10 @@ def _emergency_stop():
 def handle_stop(signum, frame):
     log("STOP", "signal received — aborting job")
     stop_flag.set()
+    try:
+        os.remove(JOB_LOCK)
+    except Exception:
+        pass
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -310,8 +456,8 @@ def main():
     parser = argparse.ArgumentParser(description="Robot Ross mode for the Huenit robot arm")
     parser.add_argument(
         "action",
-        choices=["write", "draw", "svg", "check", "calibrate"],
-        help="write TEXT | draw SHAPE | svg FILE | check (readiness only) | calibrate",
+        choices=["write", "draw", "svg", "image", "approve", "more", "less", "check", "calibrate"],
+        help="write TEXT | draw SHAPE | svg FILE | image FILE | approve | more | less | check | calibrate",
     )
     parser.add_argument(
         "content",
@@ -325,7 +471,52 @@ def main():
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
-    # ── READINESS CHECK ───────────────────────────────────────────────────────
+    # ── IMAGE PREVIEW (no arm needed) ─────────────────────────────────────────
+    if args.action == "image":
+        if not args.content:
+            parser.error("image path is required")
+        img_path = os.path.expanduser(args.content)
+        if not os.path.exists(img_path):
+            # Try ~/Downloads fallback
+            img_path = os.path.expanduser(os.path.join("~/Downloads", args.content))
+        if not os.path.exists(img_path):
+            print(f"  ❌ Image not found: {args.content}")
+            sys.exit(1)
+        log("IMAGE PREVIEW", img_path)
+        preview_image(img_path, SEGMENTS_DEFAULT, max_px=1600, blur=0.5)
+        sys.exit(0)
+
+    # ── APPROVE — draw the pending SVG ────────────────────────────────────────
+    if args.action == "approve":
+        state = read_pending()
+        if not state:
+            sys.exit(1)
+        log("APPROVE", f"drawing {state['svg_path']}")
+        args.action  = "svg"
+        args.content = state["svg_path"]
+
+    # ── MORE / LESS — adjust detail and re-preview ─────────────────────────────
+    if args.action in ("more", "less"):
+        state = read_pending()
+        if not state:
+            sys.exit(1)
+        current  = state.get("segments", SEGMENTS_DEFAULT)
+        max_px   = state.get("max_px", 800)
+        blur     = state.get("blur", 1.5)
+        if args.action == "more":
+            new_target = min(current + SEGMENTS_STEP, SEGMENTS_MAX)
+            # Also increase resolution and reduce blur to extract finer edges
+            max_px = min(max_px + 200, 2000)
+            blur   = max(round(blur - 0.5, 1), 0.5)
+        else:
+            new_target = max(current - SEGMENTS_STEP, SEGMENTS_MIN)
+            max_px = max(max_px - 200, 400)
+            blur   = round(blur + 0.5, 1)
+        log(f"DETAIL {args.action.upper()}", f"{current} → {new_target} segs, max_px={max_px}, blur={blur}")
+        preview_image(state["image_path"], new_target, max_px=max_px, blur=blur)
+        sys.exit(0)
+
+    # ── READINESS CHECK (arm actions only) ────────────────────────────────────
     print("[robot-ross] Checking system readiness...")
     issues = readiness_check()
 
@@ -356,6 +547,23 @@ def main():
 
     if not args.content:
         parser.error("content is required for write/draw")
+
+    # ── JOB LOCK — prevent collisions ─────────────────────────────────────────
+    if os.path.exists(JOB_LOCK):
+        with open(JOB_LOCK) as f:
+            lock_info = f.read().strip()
+        msg = f"⚠️ Robot Ross is already drawing ({lock_info}). Please wait until it finishes."
+        print(msg)
+        log("BUSY", lock_info)
+        subprocess.run(["openclaw", "message", "send",
+                        "--channel", "telegram",
+                        "--target", TELEGRAM_CHAT_ID,
+                        "--message", msg], capture_output=True)
+        sys.exit(1)
+
+    lock_detail = f"action={args.action} content={args.content!r}"
+    with open(JOB_LOCK, "w") as f:
+        f.write(lock_detail)
 
     log("JOB START", f"action={args.action} content={args.content!r}" + (f" size={args.size}" if args.size else ""))
 
@@ -432,6 +640,12 @@ def main():
     # ── RELEASE SLEEP PREVENTION ──────────────────────────────────────────────
     try:
         _caffeinate.terminate()
+    except Exception:
+        pass
+
+    # ── RELEASE JOB LOCK ──────────────────────────────────────────────────────
+    try:
+        os.remove(JOB_LOCK)
     except Exception:
         pass
 
