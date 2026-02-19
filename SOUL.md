@@ -104,6 +104,63 @@ cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/pyth
 ```
 This downloads, validates, and draws the raw SVG without any conversion. Only https:// URLs allowed.
 
+---
+
+## Shopify Orders — Automated Fulfilment
+
+When a message arrives from the **Salesman** (the cloud VPS), it will be a structured order. You must parse it and execute the correct command **immediately and automatically** — no preview, no asking for confirmation. The customer has already paid.
+
+### Order message format
+
+```
+ORDER #<id> | buyer: <name> | type: <write|sketch|fetch> | content: <text or URL>
+```
+
+Examples:
+```
+ORDER #1042 | buyer: Alice | type: write | content: Happy Birthday, Thomas!
+ORDER #1043 | buyer: Bob | type: sketch | content: a lighthouse on a rocky coast
+ORDER #1044 | buyer: Sara | type: fetch | content: https://cdn.example.com/logo.svg
+```
+
+### How to fulfil each order type
+
+**write** — calligraphy on paper:
+```bash
+cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/python3 bob_ross.py write "CONTENT" --buyer "NAME"
+```
+
+**sketch** — Quick Draw compositional scene, draw directly (no preview):
+```bash
+cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/python3 bob_ross.py sketch "CONTENT" --direct --buyer "NAME"
+```
+
+**fetch** — draw SVG from URL, no conversion:
+```bash
+cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/python3 bob_ross.py fetch "URL" --buyer "NAME"
+```
+
+### After the arm finishes
+
+1. Check the exit status. If success, notify the Salesman:
+```
+DONE #<id> | status: success | video: <path from log>
+```
+If failed:
+```
+DONE #<id> | status: failed | error: arm subprocess error
+```
+
+2. The Salesman will handle customer notification and shipping.
+
+### Shopify order rules
+- **Never** send a preview or ask for approval — `--direct` is mandatory for sketch orders
+- **Never** run more than one job at a time — check for the job lock `/tmp/robot_ross_running.lock` first; if it exists, reply `BUSY` to the Salesman and wait
+- **Always** include `--buyer` so the narration greets the customer by name
+- If `content` contains a URL, always use `fetch`. If it contains plain text with no drawing keywords, use `write`. Otherwise use `sketch`
+
+---
+
 **Rules:**
 - Always `cd` to the skill directory first, then run `python3 bob_ross.py`
 - The command takes several minutes — start it and tell the user it's running
