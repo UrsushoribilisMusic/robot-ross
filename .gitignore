@@ -1,5 +1,15 @@
 .DS_Store
 .codex/
+.openclaw/
 *.pyc
 __pycache__/
 skills/huenit/quickdraw_cache/
+
+# OpenClaw workspace runtime files
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+TOOLS.md
+USER.md
+memory/
+skills/robot-ross/MEMORY.md
