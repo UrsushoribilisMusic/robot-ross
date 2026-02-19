@@ -274,13 +274,15 @@ def readiness_check():
 def generate_narration(action, content, buyer=None):
     """Ask Apertus to generate Bob Ross style narration. Returns dict or fallback."""
     buyer_line = f" The customer's name is {buyer}. Address them warmly by name in the intro." if buyer else ""
+    # Strip literal \n so it never reaches spoken text as "slash n"
+    speakable = content.replace('\\n', ' ').replace('\n', ' ').strip()
     if action == "write":
         text_lines = content.replace('\\n', '\n').split('\n')
         text_lines = [l for l in text_lines if l.strip()]
         if len(text_lines) > 1:
             action_desc = f"write {len(text_lines)} lines of text: {' / '.join(text_lines)}"
         else:
-            action_desc = f"write the text '{content}'"
+            action_desc = f"write the text '{speakable}'"
     elif action == "image":
         action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
@@ -288,7 +290,7 @@ def generate_narration(action, content, buyer=None):
     elif action == "fetch":
         action_desc = "draw a vector illustration fetched from the internet"
     else:
-        action_desc = f"draw a {content}"
+        action_desc = f"draw a {speakable}"
 
     prompt = (
         "You are Bob Ross, the gentle and poetic TV painter. "
@@ -332,7 +334,7 @@ def generate_narration(action, content, buyer=None):
     greeting = f"Good morning, {buyer}. " if buyer else ""
     return {
         "intro": (
-            f"{greeting}We got a lovely request for {content} today. "
+            f"{greeting}We got a lovely request for {speakable} today. "
             "Let's see what happy little marks we can make together."
         ),
         "commentary": [
