@@ -151,6 +151,16 @@ cd ~/.openclaw/workspace/skills/robot-ross
 /usr/bin/python3 obs_manager.py set-status "Drawing for Alice"
 ```
 
+### YouTube Shorts upload
+
+```bash
+# First-time setup dependencies
+/usr/bin/python3 -m pip install google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+# Upload a local OBS recording (OAuth token stored locally after first login)
+/usr/bin/python3 youtube_upload.py ~/Movies/robot-ross.mov --buyer "Alice" --prompt "a lighthouse on a rocky coast"
+```
+
 ### Order ledger
 
 ```bash
@@ -177,8 +187,9 @@ When fully wired, each order follows this sequence automatically:
    → Apertus: "Good morning, Alice. Let's draw some happy little lines..."
    → Arm draws
    → OBS stops, .mov saved
-   → order_log updated (received, produced, video path)
-6. Artist replies: DONE #1042 | status: success | video: /path/to.mov
+   → YouTube upload (Shorts metadata includes buyer + prompt + #Shorts)
+   → order_log updated (received, produced, video URL)
+6. Artist replies: DONE #1042 | status: success | video: https://youtube.com/...
 7. Salesman notifies customer via Telegram/email
 ```
 
@@ -194,6 +205,7 @@ workspace/
 │   │   ├── bob_ross.py             # Main orchestrator
 │   │   ├── obs_manager.py          # OBS WebSocket controller
 │   │   ├── order_log.py            # Excel order ledger
+│   │   ├── youtube_upload.py       # YouTube Data API v3 uploader (OAuth2)
 │   │   └── orders.xlsx             # The ledger
 │   ├── huenit/
 │   │   ├── huenit_svg.py           # SVG → arm (Bezier-aware)

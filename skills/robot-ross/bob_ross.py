@@ -766,19 +766,38 @@ def main():
     status = "success" if success else "failed"
     log("JOB END", f"status={status} duration={elapsed}s")
 
-    # ── OBS STOP ──────────────────────────────────────────────────────────────
+    # ── OBS STOP + YOUTUBE SHORTS UPLOAD ─────────────────────────────────────
     video_path = None
+    video_url = None
     try:
         import obs_manager
         video_path = obs_manager.stop_show()
         if video_path:
             log("OBS", f"recording saved: {video_path}")
+            try:
+                import youtube_upload
+                prompt_text = getattr(args, "_original_content", args.content)
+                upload_title = f"Robot Ross draws for {args.buyer}" if args.buyer else "Robot Ross drawing"
+                video_url = youtube_upload.youtube_upload(
+                    video_path,
+                    title=upload_title,
+                    buyer=args.buyer,
+                    prompt=prompt_text,
+                )
+                if video_url:
+                    log("YOUTUBE", f"upload success: {video_url}")
+                else:
+                    log("YOUTUBE", "upload failed (continuing without URL)")
+            except Exception as e:
+                log("YOUTUBE", f"upload exception — {e}")
     except Exception as e:
         log("OBS", f"stop failed — {e}")
 
     # ── ORDER LOG — record completion ──────────────────────────────────────────
     try:
-        order_log.end(_order_row, status, video_url=video_path)
+        order_log.end(_order_row, status)
+        if video_url:
+            order_log.set_video(_order_row, video_url)
     except Exception as e:
         log("ORDER LOG ERROR", str(e))
 
