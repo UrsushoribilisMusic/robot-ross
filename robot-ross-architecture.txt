@@ -1,0 +1,393 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│                             ROBOT ROSS                                   │
+│                        Architecture Overview                             │
+│                         Phase 1 + Phase 2                                │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  INPUT CHANNELS
+  ══════════════════════════════════════════════════════════════════════════
+
+   📱 TELEGRAM APP                          🛒 SHOPIFY STOREFRONT
+   (customer's phone)                       (sell slots — 100 × CHF)
+         │                                          │
+         │  user message:                           │  Order Paid webhook
+         │  "sketch a lighthouse"                   ▼
+         │  "draw Im a movie star"        ┌─────────────────────────────┐
+         │  [sends photo]                 │   SALESMAN  (Cloud VPS)     │
+         │                                │                             │
+         │                                │   OpenClaw instance         │
+         │                                │   Brain: Claude Haiku 4.5   │
+         │                                │   (Anthropic API)           │
+         │                                │                             │
+         │                                │   Parses Shopify payload →  │
+         │                                │   ORDER #1042 |             │
+         │                                │   buyer: Alice |            │
+         │                                │   type: sketch |            │
+         │                                │   content: a lighthouse     │
+         │                                └────────────┬────────────────┘
+         │                                             │
+         │                                     Tailscale tunnel
+         │                                     auth: token
+         │                                     (secure, outbound-only)
+         │                                             │
+         └────────────────────────┬────────────────────┘
+                                  │
+                                  ▼
+
+  ══════════════════════════════════════════════════════════════════════════
+  OPENCLAW  —  Gateway & Agent  (LaunchAgent on Mac Mini M4)
+  ══════════════════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                                                                      │
+  │   TELEGRAM BOT  (@UrsushoribilisBot)                                │
+  │   ┌────────────────────────────────────────────────────────────┐    │
+  │   │  openclaw.json                                             │    │
+  │   │    channel: telegram   botToken: ****   dmPolicy: pairing  │    │
+  │   │    streamMode: partial   gateway port: 18789               │    │
+  │   │    auth: token  (auth:none forbidden per 2026 standard)    │    │
+  │   └──────────────────────────────┬─────────────────────────────┘    │
+  │                                  │  long-poll getUpdates             │
+  │                                  │  incoming message → agent run     │
+  │                                  ▼                                   │
+  │   ┌────────────────────────────────────────────────────────────┐    │
+  │   │  CLAUDE HAIKU 4.5  (Anthropic API — cloud)                 │    │
+  │   │                                                            │    │
+  │   │  Context loaded each run:                                  │    │
+  │   │    SOUL.md   — personality, order protocol, rules          │    │
+  │   │    SKILL.md  — all commands, flags, syntax                 │    │
+  │   │                                                            │    │
+  │   │  Decisions:                                                │    │
+  │   │    interactive msg  → sketch / write / image / fetch       │    │
+  │   │    ORDER format     → sketch --direct --buyer / write /    │    │
+  │   │                       fetch  (no preview, draw now)        │    │
+  │   │    preview reply    → approve / cancel                     │    │
+  │   │    "stop"           → SIGTERM to bob_ross.py               │    │
+  │   │                                                            │    │
+  │   │  Tool: exec  → runs bash commands on Mac Mini              │    │
+  │   └──────────────────────────────┬─────────────────────────────┘    │
+  │                                  │                                   │
+  └──────────────────────────────────┼───────────────────────────────────┘
+                                     │
+                    bash: /usr/bin/python3 bob_ross.py <action> <content>
+                    cwd:  ~/.openclaw/workspace/skills/robot-ross/
+                                     │
+                                     ▼
+
+  ══════════════════════════════════════════════════════════════════════════
+  BOB_ROSS.PY  —  Job Orchestrator
+  ══════════════════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                                                                      │
+  │  ACTIONS  write │ sketch │ fetch │ svg │ image │ approve │ cancel   │
+  │           more  │ less   │ check │ calibrate                        │
+  │  FLAGS    --buyer "Alice"   --direct   --no-voice   --size N        │
+  │                                                                      │
+  │  Step 1 ── readiness_check()                                        │
+  │             /tmp/huenit_ready.flag   +   calibration.json           │
+  │                                                                      │
+  │  Step 2 ── Job Lock                                                 │
+  │             /tmp/robot_ross_running.lock  (prevents concurrent runs) │
+  │                                                                      │
+  │  Step 3 ── order_log.start()  ─────────────────────► orders.xlsx   │
+  │             logs: received_at, buyer, type, content                 │
+  │                                                                      │
+  │  Step 4 ── obs_manager.start_show()  ──────────────► OBS Studio    │
+  │             WebSocket :4455   switches scene, starts recording      │
+  │                                                                      │
+  │  Step 5 ── caffeinate -d -i                                         │
+  │             macOS process — prevents sleep during long draws        │
+  │                                                                      │
+  │  Step 6 ── generate_narration()  ──────────────────► OLLAMA        │
+  │             POST http://localhost:11434/api/generate                │
+  │             model: MichelRosselli/apertus:8b-instruct-2509-q4_k_m  │◄──┐
+  │             returns: {intro, commentary[5], outro}                  │   │
+  │             --buyer → "Good morning, Alice. Let's draw..."          │   │
+  │                                                                      │   │
+  │  Step 7 ── warning_tone()                                           │   │
+  │             afplay /System/Library/Sounds/Ping.aiff  × 3           │   │
+  │                                                                      │   │
+  │  Step 8 ── speak(intro)  ───────────────────────────► speak.py     │   │
+  │  Step 9 ── run_draw()  [+ commentary thread → speak()]             │   │
+  │  Step 10 ─ speak(outro)                                             │   │
+  │                                                                      │   │
+  │  Step 11 ─ obs_manager.stop_show()  ───────────────► OBS Studio    │   │
+  │             recording saved to ~/Movies/*.mov                       │   │
+  │                                                                      │   │
+  │  Step 12 ─ order_log.end()  ───────────────────────► orders.xlsx   │   │
+  │             logs: produced_at, status, video_path                   │   │
+  │                                                                      │   │
+  │  Step 13 ─ release lock + caffeinate                                │   │
+  │                                                                      │   │
+  └──────────┬─────────────────────────────────────────────────────────┘   │
+             │                                                              │
+             │      ┌───────────────────────────────────────────────────┐  │
+             │      │  OLLAMA  (local service — http://localhost:11434)  │  │
+             │      │                                                    │  │
+             │      │  Model: Apertus 8B                                 │  │
+             │      │  MichelRosselli/apertus:8b-instruct-2509-q4_k_m   │  │
+             │      │  Quantisation: Q4_K_M  (Apple Silicon optimised)  │  │
+             │      │  Origin: Switzerland  (Innosuisse-funded project)  │  │
+             │      │                                                    │  │
+             │      │  Used for:                                         │  │
+             │      │    • Bob Ross narration (intro/commentary/outro)   │  │
+             │      │    • Quick Draw scene parsing (objects+positions)  │  │
+             │      └───────────────────────────────────────────────────┘  │
+             │                                            ▲                 │
+             │                            quickdraw_compose.py calls Apertus┘
+             │
+             │      ┌───────────────────────────────────────────────────┐
+             │      │  speak.py  —  TTS Service                         │
+             │      │                                                    │
+             │      │  Primary:   Kokoro TTS  (local, Apple Silicon)    │
+             │      │             neural voice, high-fidelity           │
+             │      │             soundfile → WAV → afplay              │
+             │      │                                                    │
+             │      │  Fallback:  macOS say  (built-in)                 │
+             │      │  Fallback:  espeak  (/opt/homebrew/bin/espeak)    │
+             │      └───────────────────────────────────────────────────┘
+             │
+             ├──────────────────────────────────────────────┐
+             │                                              │
+             ▼                                              ▼
+  ┌──────────────────────────────────┐    ┌────────────────────────────────┐
+  │   DRAWING SCRIPTS  (huenit/)     │    │   INPUT PIPELINES              │
+  │                                  │    │                                │
+  │  huenit_write.py                 │    │  quickdraw_compose.py  ──────► │
+  │    text calligraphy              │    │    Apertus 8B parses prompt    │
+  │    auto-scales to 180mm width    │    │    → objects + positions       │
+  │    multi-line support            │    │    quickdraw_to_svg.py         │
+  │                                  │    │    → Google Quick Draw API     │
+  │  huenit_draw.py                  │    │    → 345 categories            │
+  │    shapes: circle square         │    │    → cache 300/category        │
+  │    triangle demo                 │    │    → synonym + fuzzy match     │
+  │    interactive calibration       │    │    Pillow renders PNG preview  │
+  │                                  │    │    → Telegram (pending state)  │
+  │  huenit_svg.py  ◄── ALL paths    │    │    approve → SVG to arm        │
+  │    Bezier curves: C Q S T        │    │                                │
+  │    CURVE_STEPS = 20              │    │  huenit_sketch.py              │
+  │    greedy path-sort by proximity │    │    https:// only               │
+  │    G-code stream over serial     │    │    sanitise (no private IPs)   │
+  │                                  │    │    retry × 3  timeout 15s      │
+  │  huenit_wave.py                  │    │    5MB limit + SVG validate    │
+  │    greeting gesture              │    │    raw SVG → huenit_svg.py     │
+  │                                  │    │                                │
+  └──────────────┬───────────────────┘    │  image_to_svg.py  (vtracer)    │
+                 │                        │    HEIC/JPG/PNG via pillow      │
+                 │  ┌─────────────────────┤    pillow-heif for HEIC        │
+                 │  │  all pipelines      │    auto-tune binary search      │
+                 │  │  converge here      │    Telegram preview + approve   │
+                 ▼  ▼                     └────────────────────────────────┘
+       ┌─────────────────┐
+       │  huenit_svg.py  │  ◄── common renderer for all pipelines
+       │  (SVG renderer) │
+       └────────┬────────┘
+                │
+                │   pyserial  (Python library)
+                │   serial.Serial('/dev/cu.usbserial-310', 115200)
+                │   sends G-code line by line, waits M400 (move complete)
+                │
+                ▼
+      ┌──────────────────────────┐
+      │     HUENIT ROBOT ARM     │
+      │   /dev/cu.usbserial-310  │
+      │   USB → UART bridge      │
+      │                          │
+      │   G-code dialect:        │
+      │     G21  mm units        │
+      │     G91  relative moves  │
+      │     G1 X.. Y.. F300      │
+      │     M3/M5  pen down/up   │
+      │     M400   wait idle     │
+      │                          │
+      │   Calibration:           │
+      │     Z_UP  = 6.0 mm       │
+      │     Feed  = 300 mm/min   │
+      │                          │
+      │   Drawing surface:       │
+      │     Paper width 180mm    │
+      │     10×10 cm board grid  │
+      └──────────────────────────┘
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  STUDIO OUTPUT
+  ══════════════════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  OBS STUDIO 32  (Apple Silicon — arm64)                             │
+  │                                                                      │
+  │  ┌─────────────────────────────────────────────────────────────┐   │
+  │  │  Reolink 4K Camera                                          │   │
+  │  │  IP: 192.168.1.40    user: admin                            │   │
+  │  │  RTSP: rtsp://****@192.168.1.40:554/Preview_01_sub          │   │
+  │  │  Sharpness: 175      Watermarks: hidden                     │   │
+  │  │  Audio: camera mic → AAC 48kHz stereo (via RTSP)            │   │
+  │  │  OBS source: Robot_Main_Cam  (Media Source)                 │   │
+  │  └─────────────────────────────────────────────────────────────┘   │
+  │                                                                      │
+  │  Control: obs_manager.py  via  obsws-python  (WebSocket v5 :4455)  │
+  │                                                                      │
+  │  Scenes ─────────────────────────────────────────────────────────  │
+  │    Workspace   full camera feed  (used as intro + outro)            │
+  │    Artist      camera + Robot_Status text overlay  (during draw)    │
+  │                  overlay updated live: "Drawing for Alice: ..."     │
+  │                                                                      │
+  │  Output ──────────────────────────────────────────────────────────  │
+  │    ~/Movies/YYYY-MM-DD HH-MM-SS.mov   per-order recording          │
+  │    YouTube Live stream ──────────────────────────── [Phase 2]       │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  ORDER LEDGER  ·  order_log.py  +  orders.xlsx  (openpyxl)         │
+  │                                                                      │
+  │  Col  1  Received At    auto  timestamped at job start              │
+  │  Col  2  Buyer          from --buyer flag                           │
+  │  Col  3  Order Type     write / sketch / fetch / image              │
+  │  Col  4  Content        prompt text or URL                          │
+  │  Col  5  Produced At    auto  timestamped at job end                │
+  │  Col  6  Status         success / failed / in_progress              │
+  │  Col  7  Video URL      path to .mov  (manual: set-video)           │
+  │  Col  8  Posted         date  (manual: set-posted)                  │
+  │  Col  9  Shipped        date  (manual: set-shipped)                 │
+  └──────────────────────────────────────────────────────────────────────┘
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  COMPLETE TECHNOLOGY STACK
+  ══════════════════════════════════════════════════════════════════════════
+
+  AI & MODELS
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ Claude Haiku 4.5    │ Anthropic API · control brain · SOUL+SKILL ctx │
+  │ Apertus 8B          │ Ollama local · narration + scene parsing       │
+  │                     │ MichelRosselli/apertus:8b-instruct-2509-q4_k_m │
+  │                     │ Swiss model · Innosuisse-funded · Q4_K_M quant │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+  VOICE & AUDIO
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ Kokoro TTS          │ local neural TTS · Apple Silicon optimised     │
+  │ speak.py            │ wrapper: Kokoro → soundfile → afplay           │
+  │ macOS say           │ fallback TTS (built-in)                        │
+  │ espeak              │ fallback TTS · /opt/homebrew/bin/espeak        │
+  │ afplay              │ macOS audio playback · warning tone            │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+  ROBOT CONTROL
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ pyserial            │ USB serial → G-code stream to Huenit arm       │
+  │ huenit_svg.py       │ SVG → G-code · Bezier curves · path sort       │
+  │ huenit_write.py     │ text calligraphy · auto-scale · multi-line     │
+  │ huenit_draw.py      │ shapes · calibration                           │
+  │ huenit_sketch.py    │ internet SVG fetch · sanitise · retry          │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+  IMAGE PROCESSING
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ vtracer             │ photo → SVG vectoriser                         │
+  │ pillow              │ image processing · Quick Draw PNG preview      │
+  │ pillow-heif         │ HEIC photo support (iPhone photos)             │
+  │ quickdraw_compose   │ Ollama + Google Quick Draw → composed SVG      │
+  │ quickdraw_to_svg    │ ndjson fetch · 345 categories · fuzzy match    │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+  STREAMING & LOGGING
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ OBS Studio 32       │ arm64 · WebSocket server :4455                 │
+  │ obsws-python 1.8    │ WebSocket v5 client · obs_manager.py           │
+  │ openpyxl 3.1        │ Excel r/w · orders.xlsx ledger                 │
+  │ caffeinate          │ macOS sleep prevention (-d -i flags)           │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+  INTEGRATION
+  ┌─────────────────────┬────────────────────────────────────────────────┐
+  │ OpenClaw            │ agent runtime · gateway :18789 · LaunchAgent   │
+  │ Telegram Bot API    │ @UrsushoribilisBot · long-poll · media send    │
+  │ Tailscale           │ Salesman VPS ↔ Artist Mac Mini · auth: token   │
+  │ Shopify Webhooks    │ order/paid → Salesman → dispatch               │
+  └─────────────────────┴────────────────────────────────────────────────┘
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  HORIZONTAL OVERVIEW  —  The Complete Flow
+  ══════════════════════════════════════════════════════════════════════════
+
+                         ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+                         │                              MAC MINI M4  —  THE ARTIST                                       │
+                         │                                                                                               │
+  📱 Telegram ─────────► │  OpenClaw Gateway :18789                                                                     │
+                         │       │                                                                                       │
+  🛒 Shopify             │       │  Telegram Bot (@UrsushoribilisBot) long-polls for messages                           │
+      │                  │       ▼                                                                                       │
+      ▼                  │  Claude Haiku 4.5 ◄──── SOUL.md + SKILL.md                                                  │
+  Salesman VPS           │       │                                                                                       │
+  (OpenClaw+Haiku) ─────►│       │  bash exec                                                                           │
+  via Tailscale          │       ▼                                                                                       │
+                         │  bob_ross.py ────────────────────────────────────────────────────────────────────────────┐   │
+                         │       │                                                                                   │   │
+                         │       ├── generate_narration() ──► Ollama :11434 ──► Apertus 8B (Swiss) ──► text        │   │
+                         │       ├── speak() ─────────────► speak.py ──► Kokoro TTS ──► afplay ──► 🔊             │   │
+                         │       ├── obs_manager.py ───────► OBS Studio :4455 (WebSocket) ──► 🎥 record           │   │
+                         │       ├── order_log.py ──────────────────────────────────────────────► orders.xlsx     │   │
+                         │       │                                                                                   │   │
+                         │       ├── huenit_write.py ─────────────────────────────────┐                           │   │
+                         │       ├── huenit_draw.py  ─────────────────────────────────┤                           │   │
+                         │       ├── huenit_svg.py   ◄── quickdraw_compose ◄─ Apertus ┤                           │   │
+                         │       ├── huenit_svg.py   ◄── huenit_sketch (URL fetch)    ┤                           │   │
+                         │       └── huenit_svg.py   ◄── image_to_svg (vtracer)       ┤                           │   │
+                         │                                       │                     │                           │   │
+                         │                                  pyserial                   │                           │   │
+                         │                                       │                     │                           │   │
+                         │                               Huenit Arm ◄─────────────────┘                           │   │
+                         │                            /dev/cu.usbserial-310                                        │   │
+                         │                            G-code: G21 G91 G1 M3 M5 M400                               │   │
+                         │                                       │                                                  │   │
+                         │                                  Paper + Pen ────────────────────────────────────────── ┘   │
+                         │                                  10×10 cm grid                                              │
+                         │                                                                                               │
+                         │  Reolink 4K (192.168.1.40) ──RTSP──► OBS ──► ~/Movies/*.mov ──► YouTube Live 🌐            │
+                         │                                                                                               │
+                         └───────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                                 │
+                                                         orders.xlsx ──► Salesman notifies customer ──► ships 📦
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  THE END GOAL  —  10×10 Wall of Fame
+  ══════════════════════════════════════════════════════════════════════════
+
+  100 unique slots  ·  each 10×10 cm  ·  one drawing per customer
+  drawn live on YouTube  ·  shipped to buyer  ·  permanent on the wall
+
+  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
+  │ 01 │ 02 │ 03 │ 04 │ 05 │ 06 │ 07 │ 08 │ 09 │ 10 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 11 │ 12 │ 13 │ 14 │ 15 │ 16 │ 17 │ 18 │ 19 │ 20 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 21 │ 22 │ .. │    │    │    │    │    │    │ 30 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 91 │    │    │    │    │    │    │    │    │100 │
+  └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+
+  Customer journey:
+    1. Buy a slot on Shopify  →  choose a prompt or upload a design
+    2. Salesman dispatches to Artist via Tailscale
+    3. Robot Ross draws it live on YouTube  (narrated by Apertus in Bob Ross style)
+    4. Recording saved  →  video link sent to customer
+    5. Original paper artwork shipped  →  slot filled on the Wall of Fame forever
