@@ -57,6 +57,11 @@ cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/pyth
 ```bash
 cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/python3 bob_ross.py svg /path/to/file.svg
 ```
+If the file is in ~/Downloads/, a bare filename works — no need for full path:
+```bash
+cd /Users/miguelrodriguez/.openclaw/workspace/skills/robot-ross && /usr/bin/python3 bob_ross.py svg donkey.svg
+```
+Add `--size 180` for large paper (A4 width). The largest dimension is scaled to that value.
 
 **Draw from a photo (jpg, png, HEIC) — when the user sends an image attachment:**
 The photo will be saved in `~/.openclaw/media/inbound/`. Use its full path:
