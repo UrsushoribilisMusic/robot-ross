@@ -684,6 +684,16 @@ def main():
         content=getattr(args, "_original_content", args.content),
     )
 
+    # ── OBS RECORDING ─────────────────────────────────────────────────────────
+    _obs_recording = None
+    try:
+        import obs_manager
+        obs_content = getattr(args, "_original_content", args.content)
+        obs_manager.start_show(buyer_name=args.buyer, prompt=obs_content, record_only=True)
+        log("OBS", "recording started")
+    except Exception as e:
+        log("OBS", f"not available — {e}")
+
     # ── PREVENT SLEEP ─────────────────────────────────────────────────────────
     _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])  # -d=display, -i=system
     log("CAFFEINATE", f"started (pid {_caffeinate.pid}) — Mac will not sleep during draw")
@@ -754,9 +764,19 @@ def main():
     status = "success" if success else "failed"
     log("JOB END", f"status={status} duration={elapsed}s")
 
+    # ── OBS STOP ──────────────────────────────────────────────────────────────
+    video_path = None
+    try:
+        import obs_manager
+        video_path = obs_manager.stop_show()
+        if video_path:
+            log("OBS", f"recording saved: {video_path}")
+    except Exception as e:
+        log("OBS", f"stop failed — {e}")
+
     # ── ORDER LOG — record completion ──────────────────────────────────────────
     try:
-        order_log.end(_order_row, status)
+        order_log.end(_order_row, status, video_url=video_path)
     except Exception as e:
         log("ORDER LOG ERROR", str(e))
 

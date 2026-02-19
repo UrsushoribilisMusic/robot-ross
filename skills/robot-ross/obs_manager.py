@@ -137,11 +137,11 @@ def get_status():
     print(f"Recording     : {'ACTIVE' if record.output_active else 'off'}")
 
 
-def start_show(buyer_name=None, prompt=None):
+def start_show(buyer_name=None, prompt=None, record_only=False):
     """
     Full show sequence:
       1. Switch to Workspace (intro view — full camera)
-      2. Start streaming + recording
+      2. Start recording (always) + streaming (unless record_only=True)
       3. Switch to Artist (drawing view — camera + status overlay)
       4. Set status text to greet the buyer / show what's being drawn
     """
@@ -149,10 +149,13 @@ def start_show(buyer_name=None, prompt=None):
 
     switch_scene(SCENE_WORKSPACE)
 
-    stream = cl.get_stream_status()
-    if not stream.output_active:
-        cl.start_stream()
-        print("Streaming started.")
+    if not record_only:
+        stream = cl.get_stream_status()
+        if not stream.output_active:
+            cl.start_stream()
+            print("Streaming started.")
+    else:
+        print("Record-only mode — skipping stream.")
 
     record = cl.get_record_status()
     if not record.output_active:
@@ -211,7 +214,8 @@ if __name__ == "__main__":
     sub.add_parser("start_record",  help="Start local recording")
     sub.add_parser("stop_record",   help="Stop local recording")
     sub.add_parser("status",        help="Show OBS status")
-    sub.add_parser("start_show",    help="Intro → stream+record → drawing cam")
+    p_show = sub.add_parser("start_show", help="Intro → stream+record → drawing cam")
+    p_show.add_argument("--record-only", action="store_true", help="Skip YouTube stream, record locally only")
     sub.add_parser("stop_show",     help="Outro → stop record+stream")
 
     p_scene = sub.add_parser("scene", help="Switch to a named scene")
@@ -227,7 +231,7 @@ if __name__ == "__main__":
     elif args.cmd == "start_record": start_record()
     elif args.cmd == "stop_record":  stop_record()
     elif args.cmd == "status":       get_status()
-    elif args.cmd == "start_show":   start_show()
+    elif args.cmd == "start_show":   start_show(record_only=getattr(args, "record_only", False))
     elif args.cmd == "stop_show":    stop_show()
     elif args.cmd == "scene":        switch_scene(args.name)
     elif args.cmd == "set-status":   set_status(args.text)
