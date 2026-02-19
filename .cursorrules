@@ -1,0 +1,40 @@
+# Robot Ross / OpenClaw — Cursor Rules
+
+## Project overview
+Robot Ross is a Huenit robot arm on a Mac Mini M4, controlled by an OpenClaw agent
+(Claude Haiku brain). It draws on paper, narrates via Apertus 8B (Swiss LLM via Ollama),
+records sessions with OBS Studio, and fulfils Shopify orders live on YouTube.
+
+## Your role in Cursor
+You assist with code suggestions and edits across all streams. You do NOT own a specific
+stream — defer architectural decisions to the agent instructions in AGENTS/.
+
+## Key files
+| File | Purpose |
+|---|---|
+| `skills/robot-ross/bob_ross.py` | Main orchestrator — all arm jobs go through here |
+| `skills/robot-ross/obs_manager.py` | OBS WebSocket v5 controller |
+| `skills/robot-ross/order_log.py` | Excel order ledger (openpyxl) |
+| `skills/huenit/huenit_svg.py` | SVG renderer for the arm |
+| `skills/huenit/huenit_sketch.py` | Internet SVG fetch with URL sanitisation |
+| `skills/voice/speak.py` | Kokoro TTS with macOS say fallback |
+| `SOUL.md` | OpenClaw agent brain instructions — edit conservatively |
+
+## Hard rules
+- Python interpreter for subprocesses: always `/usr/bin/python3`
+- Serial port: `/dev/cu.usbserial-310` — never hardcode a different value
+- Never call huenit scripts directly — always go through `bob_ross.py`
+- Media files for Telegram must be copied to `~/.openclaw/media/inbound/` first
+  (openclaw blocks /tmp for media sends)
+- No direct commits to master — branch + PR always
+- Commit format: `[#ISSUE] Short description`
+
+## Platform
+- macOS arm64 (Apple Silicon M4), Python 3.9 via `/usr/bin/python3`
+- No new pip dependencies without checking they install on macOS arm64
+- Secrets go in environment variables, never hardcoded
+
+## Before suggesting changes
+1. Read the relevant file(s) in full — do not suggest changes to code you haven't seen
+2. Check AGENTS/CONVENTIONS.md for coding style
+3. Run `bob_ross.py check` to verify arm readiness before arm-related work
