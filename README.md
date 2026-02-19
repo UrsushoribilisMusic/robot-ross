@@ -14,29 +14,22 @@ The end goal is a fully automated **Artist-as-a-Service**: customers buy a slot 
 
 ## Architecture
 
+Full diagram: `~/Downloads/robot-ross-architecture.txt`
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  THE ARTIST (Mac mini M4)               │
-│                                                         │
-│  Telegram ──► OpenClaw (Haiku brain) ──► bob_ross.py   │
-│                                              │          │
-│                        ┌─────────────────────┤          │
-│                        │                     │          │
-│                   OBS Studio            Huenit Arm      │
-│                (record + stream)     (USB serial)       │
-│                        │                     │          │
-│                   ~/Movies/*.mov        Paper + Pen      │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-                          ▲
-                          │  Tailscale (Phase 2)
-                          │
-┌─────────────────────────────────────────────────────────┐
-│              THE SALESMAN (Cloud VPS)                   │
-│                                                         │
-│  Shopify webhook ──► OpenClaw (Gallery Assistant) ──►  │
-│                      Dispatch order to Artist           │
-└─────────────────────────────────────────────────────────┘
+ 🛒 Shopify ──► Salesman VPS ──► Tailscale ──────────────────────┐
+                                                                  │
+ 📱 Telegram ───────────────────────────────────────────────────► OpenClaw (Haiku)
+                                                                       │
+                                    ┌──────────────────────────────────┘
+                                    ▼
+ Google Quick Draw ◄── quickdraw_compose ◄──────────── bob_ross.py
+ Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS Studio ──► ~/Movies/ ──► YouTube
+ Local photo       ◄── image_to_svg     ◄────────────── ├── Apertus 8B (narration)
+ Text/calligraphy  ◄── huenit_write     ◄────────────── └── order_log ──► orders.xlsx
+                                    │
+                               Huenit Arm
+                            Paper · 10×10 board
 ```
 
 ---
