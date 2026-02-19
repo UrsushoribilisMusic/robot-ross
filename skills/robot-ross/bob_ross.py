@@ -25,6 +25,7 @@ import argparse
 import urllib.request
 import urllib.error
 from datetime import datetime
+import order_log
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -91,13 +92,19 @@ def svg_to_png(svg_path, png_path):
 
 def send_telegram_preview(png_path, caption):
     """Send a PNG preview to Telegram via openclaw CLI."""
+    import shutil
+    # openclaw only allows media from its own directories — copy there first
+    allowed_dir = os.path.expanduser("~/.openclaw/media/inbound")
+    os.makedirs(allowed_dir, exist_ok=True)
+    send_path = os.path.join(allowed_dir, os.path.basename(png_path))
+    shutil.copy2(png_path, send_path)
     try:
         result = subprocess.run(
             ["openclaw", "message", "send",
              "--channel", "telegram",
              "--target", TELEGRAM_CHAT_ID,
              "--message", caption,
-             "--media", png_path],
+             "--media", send_path],
             capture_output=True, timeout=30,
         )
         if result.returncode == 0:
@@ -264,8 +271,9 @@ def readiness_check():
 
 
 # ── Ollama narration ──────────────────────────────────────────────────────────
-def generate_narration(action, content):
+def generate_narration(action, content, buyer=None):
     """Ask Apertus to generate Bob Ross style narration. Returns dict or fallback."""
+    buyer_line = f" The customer's name is {buyer}. Address them warmly by name in the intro." if buyer else ""
     if action == "write":
         text_lines = content.replace('\\n', '\n').split('\n')
         text_lines = [l for l in text_lines if l.strip()]
@@ -277,13 +285,15 @@ def generate_narration(action, content):
         action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
         action_desc = "draw a vector illustration"
+    elif action == "fetch":
+        action_desc = "draw a vector illustration fetched from the internet"
     else:
         action_desc = f"draw a {content}"
 
     prompt = (
         "You are Bob Ross, the gentle and poetic TV painter. "
         "But today, instead of painting, you are controlling a robot arm that draws on paper.\n\n"
-        f"A request has come in to {action_desc}.\n\n"
+        f"A request has come in to {action_desc}.{buyer_line}\n\n"
         "Generate narration as a JSON object with exactly these keys:\n"
         '- "intro": 1-2 warm sentences welcoming the request. Start with "We got a lovely request..."\n'
         '- "commentary": a list of 5 short, poetic, Bob Ross-style phrases to say WHILE drawing. '
@@ -319,9 +329,10 @@ def generate_narration(action, content):
         print(f"  ⚠  Ollama error: {e} — using fallback narration")
 
     # Fallback narration
+    greeting = f"Good morning, {buyer}. " if buyer else ""
     return {
         "intro": (
-            f"We got a lovely request for {content} today. "
+            f"{greeting}We got a lovely request for {content} today. "
             "Let's see what happy little marks we can make together."
         ),
         "commentary": [
@@ -372,6 +383,23 @@ def run_draw(action, content, size=None):
         svg_path = content
         if not os.path.dirname(svg_path):
             svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
+        if size:
+            cmd += ["--size", str(size)]
+    elif action == "fetch":
+        # Download SVG from URL, validate, then draw raw
+        svg_path = "/tmp/robot_ross_fetched.svg"
+        fetch_cmd = [
+            py, os.path.join(HUENIT_DIR, "huenit_sketch.py"),
+            content, "--fetch-only", "--out", svg_path,
+        ]
+        print(f"  Fetching SVG: {content}")
+        result = subprocess.run(fetch_cmd, stderr=subprocess.PIPE)
+        if result.returncode != 0 or not os.path.exists(svg_path):
+            err = (result.stderr or b"").decode(errors="replace").strip()
+            print(f"  ❌ SVG fetch failed: {err[:300]}")
+            return False
+        print(f"  ✅ SVG ready: {svg_path}")
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
         if size:
             cmd += ["--size", str(size)]
@@ -456,20 +484,101 @@ def main():
     parser = argparse.ArgumentParser(description="Robot Ross mode for the Huenit robot arm")
     parser.add_argument(
         "action",
-        choices=["write", "draw", "svg", "image", "approve", "more", "less", "check", "calibrate"],
-        help="write TEXT | draw SHAPE | svg FILE | image FILE | approve | more | less | check | calibrate",
+        choices=["write", "draw", "svg", "image", "sketch", "fetch", "approve", "cancel", "more", "less", "check", "calibrate"],
+        help="write TEXT | draw SHAPE | svg FILE | image FILE | sketch PROMPT | fetch URL | approve | cancel | more | less | check | calibrate",
     )
     parser.add_argument(
         "content",
         nargs="?",
         help="Text to write, shape name, or path to SVG file",
     )
-    parser.add_argument("--size", type=float, help="Size in mm (letter height or shape size)")
+    parser.add_argument("--size",   type=float, help="Size in mm (letter height or shape size)")
     parser.add_argument("--no-voice", action="store_true", help="Skip all voice narration")
+    parser.add_argument("--direct", action="store_true",
+                        help="sketch: skip preview, draw immediately (for automated orders)")
+    parser.add_argument("--buyer",  default=None,
+                        help="Buyer name for personalised narration (e.g. from Shopify order)")
     args = parser.parse_args()
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
+
+    # ── SKETCH — generate Quick Draw scene SVG, preview, wait for approve/cancel ─
+    if args.action == "sketch":
+        if not args.content:
+            parser.error("sketch requires a prompt, e.g.: sketch \"a cat on a bench\"")
+        prompt = args.content
+        svg_path = "/tmp/quickdraw_scene.svg"
+        png_path = "/tmp/quickdraw_scene_preview.png"
+
+        log("SKETCH", f"prompt={prompt!r}")
+        print(f"  Composing Quick Draw scene for: {prompt!r}")
+
+        compose_cmd = [
+            sys.executable,
+            os.path.join(HUENIT_DIR, "quickdraw_compose.py"),
+            prompt,
+            "--out", svg_path,
+            "--png-out", png_path,
+        ]
+        result = subprocess.run(compose_cmd, capture_output=False)
+        if result.returncode != 0 or not os.path.exists(svg_path):
+            print("  ❌ Scene composition failed")
+            sys.exit(1)
+
+        if args.direct:
+            # Automated order — skip preview, go straight to arm
+            log("SKETCH DIRECT", f"bypassing preview, drawing immediately")
+            args._original_action  = "sketch"
+            args._original_content = prompt
+            args.action  = "svg"
+            args.content = svg_path
+            # fall through to the arm execution below
+        else:
+            caption = (
+                f"Sketch ready: {prompt}\n\n"
+                f"Reply with:\n  draw — send to arm\n  cancel — discard"
+            )
+            if os.path.exists(png_path):
+                send_telegram_preview(png_path, caption)
+            else:
+                print("  ⚠  PNG not generated — sending text only")
+                subprocess.run(
+                    ["openclaw", "message", "send",
+                     "--channel", "telegram",
+                     "--target", TELEGRAM_CHAT_ID,
+                     "--message", caption],
+                    capture_output=True,
+                )
+
+            # Save pending state (type=sketch, no image_path)
+            state = {"type": "sketch", "svg_path": svg_path, "prompt": prompt}
+            with open(PENDING_STATE, "w") as f:
+                json.dump(state, f)
+            log("SKETCH PREVIEW", f"pending saved, svg={svg_path}")
+            sys.exit(0)
+
+    # ── CANCEL — discard pending sketch or image ───────────────────────────────
+    if args.action == "cancel":
+        if os.path.exists(PENDING_STATE):
+            with open(PENDING_STATE) as f:
+                state = json.load(f)
+            os.remove(PENDING_STATE)
+            what = state.get("prompt") or state.get("image_path", "pending drawing")
+            msg = f"Cancelled. Nothing was drawn."
+            log("CANCEL", what)
+        else:
+            msg = "Nothing pending to cancel."
+            log("CANCEL", "no pending state")
+        print(f"  {msg}")
+        subprocess.run(
+            ["openclaw", "message", "send",
+             "--channel", "telegram",
+             "--target", TELEGRAM_CHAT_ID,
+             "--message", msg],
+            capture_output=True,
+        )
+        sys.exit(0)
 
     # ── IMAGE PREVIEW (no arm needed) ─────────────────────────────────────────
     if args.action == "image":
@@ -567,6 +676,14 @@ def main():
 
     log("JOB START", f"action={args.action} content={args.content!r}" + (f" size={args.size}" if args.size else ""))
 
+    # ── ORDER LOG — record reception ───────────────────────────────────────────
+    # Use original_action/original_content (sketch --direct rewrites args.action to "svg")
+    _order_row = order_log.start(
+        buyer=args.buyer,
+        order_type=getattr(args, "_original_action", args.action),
+        content=getattr(args, "_original_content", args.content),
+    )
+
     # ── PREVENT SLEEP ─────────────────────────────────────────────────────────
     _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])  # -d=display, -i=system
     log("CAFFEINATE", f"started (pid {_caffeinate.pid}) — Mac will not sleep during draw")
@@ -574,7 +691,7 @@ def main():
     # ── GENERATE NARRATION ────────────────────────────────────────────────────
     if not args.no_voice:
         log("NARRATION", "requesting from Apertus")
-        narration = generate_narration(args.action, args.content)
+        narration = generate_narration(args.action, args.content, buyer=args.buyer)
         log("NARRATION", "ready" if narration.get("intro") else "using fallback")
     else:
         narration = {"intro": "", "commentary": [], "outro": ""}
@@ -636,6 +753,12 @@ def main():
 
     status = "success" if success else "failed"
     log("JOB END", f"status={status} duration={elapsed}s")
+
+    # ── ORDER LOG — record completion ──────────────────────────────────────────
+    try:
+        order_log.end(_order_row, status)
+    except Exception as e:
+        log("ORDER LOG ERROR", str(e))
 
     # ── RELEASE SLEEP PREVENTION ──────────────────────────────────────────────
     try:
