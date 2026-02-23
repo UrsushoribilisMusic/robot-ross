@@ -688,10 +688,12 @@ def main():
 
     # ── OBS RECORDING ─────────────────────────────────────────────────────────
     _obs_recording = None
+    _recording_start = None
     try:
         import obs_manager
         obs_content = getattr(args, "_original_content", args.content)
         obs_manager.start_show(buyer_name=args.buyer, prompt=obs_content, record_only=True)
+        _recording_start = time.time()
         log("OBS", "recording started")
     except Exception as e:
         log("OBS", f"not available — {e}")
@@ -715,6 +717,7 @@ def main():
     # ── WARNING TONE ──────────────────────────────────────────────────────────
     log("WARNING TONE", "playing — stand clear")
     warning_tone()
+    _beep_end = time.time()
 
     if stop_flag.is_set():
         log("STOP", "aborted during warning tone")
@@ -774,6 +777,26 @@ def main():
         video_path = obs_manager.stop_show()
         if video_path:
             log("OBS", f"recording saved: {video_path}")
+            # ── TRIM — cut everything before the last beep ─────────────────
+            if _recording_start is not None:
+                trim_offset = max(0.0, _beep_end - _recording_start)
+                trimmed = video_path.rsplit(".", 1)
+                trimmed = trimmed[0] + "_trimmed." + (trimmed[1] if len(trimmed) > 1 else "mov")
+                log("TRIM", f"cutting first {trim_offset:.1f}s (beeps + setup)")
+                trim_result = subprocess.run(
+                    ["/opt/homebrew/bin/ffmpeg", "-y",
+                     "-ss", f"{trim_offset:.2f}",
+                     "-i", video_path,
+                     "-c", "copy",
+                     trimmed],
+                    capture_output=True,
+                )
+                if trim_result.returncode == 0 and os.path.exists(trimmed):
+                    os.replace(trimmed, video_path)
+                    log("TRIM", "done — recording trimmed in place")
+                else:
+                    err = trim_result.stderr.decode(errors="replace")[-200:]
+                    log("TRIM", f"ffmpeg failed, uploading untrimmed — {err}")
             try:
                 import youtube_upload
                 prompt_text = getattr(args, "_original_content", args.content)
