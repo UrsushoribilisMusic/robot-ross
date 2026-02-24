@@ -54,6 +54,79 @@ SEGMENTS_MAX      = 8000
 SEGMENTS_STEP     = 1000
 SEGMENTS_DEFAULT  = 4000
 
+# Text wrapping limits for the `write` action
+TEXT_MAX_CHARS = 255
+TEXT_LINE_CHARS = 35   # soft target; auto-scaler handles the rest
+
+
+# ── Text wrapping ──────────────────────────────────────────────────────────────
+def _hyphenate_word(word, max_len):
+    """
+    Split a word that exceeds max_len into hyphenated parts using a VC|CV rule.
+    Example: "extraordinary" → ["extraordi-", "nary"]
+    """
+    vowels = set("aeiouAEIOU")
+    parts = []
+    while len(word) > max_len:
+        limit = max_len - 1  # leave room for hyphen
+        split_at = limit
+        # Walk back up to 10 chars looking for a clean syllable boundary
+        for i in range(limit, max(1, limit - 10), -1):
+            prev, curr = word[i - 1], word[i]
+            # CV boundary: consonant → vowel  (split before the vowel)
+            if curr in vowels and prev not in vowels:
+                split_at = i
+                break
+            # VC boundary: vowel → consonant  (split after the vowel)
+            if prev in vowels and curr not in vowels:
+                split_at = i
+                break
+        parts.append(word[:split_at] + "-")
+        word = word[split_at:]
+    parts.append(word)
+    return parts
+
+
+def wrap_text(text, max_chars=TEXT_MAX_CHARS, max_line=TEXT_LINE_CHARS):
+    """
+    Validate and wrap write-action text.
+    Raises ValueError if text exceeds max_chars.
+    Returns the text with \\n line breaks inserted at natural word boundaries.
+    Long words are broken with hyphens at syllable boundaries.
+    """
+    if len(text) > max_chars:
+        raise ValueError(
+            f"Text too long ({len(text)} chars, max {max_chars}). Please shorten your message."
+        )
+
+    words = text.split()
+    lines = []
+    current: list = []
+    current_len = 0
+
+    for word in words:
+        gap = 1 if current else 0
+        if current_len + gap + len(word) <= max_line:
+            current.append(word)
+            current_len += gap + len(word)
+        else:
+            if current:
+                lines.append(" ".join(current))
+            if len(word) > max_line:
+                parts = _hyphenate_word(word, max_line)
+                for part in parts[:-1]:
+                    lines.append(part)
+                current = [parts[-1]]
+                current_len = len(parts[-1])
+            else:
+                current = [word]
+                current_len = len(word)
+
+    if current:
+        lines.append(" ".join(current))
+
+    return "\\n".join(lines)
+
 
 def log(event, detail=""):
     """Append a timestamped log entry."""
@@ -504,6 +577,15 @@ def main():
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
+
+    # ── TEXT WRAP (write action only) ─────────────────────────────────────────
+    if args.action == "write" and args.content:
+        try:
+            args.content = wrap_text(args.content)
+        except ValueError as e:
+            print(f"❌ {e}")
+            log("ERROR", str(e))
+            sys.exit(1)
 
     # ── SKETCH — generate Quick Draw scene SVG, preview, wait for approve/cancel ─
     if args.action == "sketch":
