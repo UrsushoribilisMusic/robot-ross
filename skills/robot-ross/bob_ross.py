@@ -54,6 +54,9 @@ SEGMENTS_MAX      = 8000
 SEGMENTS_STEP     = 1000
 SEGMENTS_DEFAULT  = 4000
 
+# Maximum safe drawing area (mm). Arm loses steps beyond this — hard cap.
+MAX_DRAW_SIZE = 125
+
 # Text wrapping limits for the `write` action
 TEXT_MAX_CHARS = 255
 TEXT_LINE_CHARS = 35   # soft target; auto-scaler handles the rest
@@ -445,22 +448,36 @@ def run_draw(action, content, size=None):
     global _draw_proc
 
     py = sys.executable  # use same interpreter as bob_ross.py (has all deps)
+
+    # ── Size cap: no job may exceed MAX_DRAW_SIZE in any dimension ────────────
+    def _svg_size(requested):
+        """Return the --size value to pass to huenit_svg.py, capped at MAX_DRAW_SIZE."""
+        if requested and requested < MAX_DRAW_SIZE:
+            return requested
+        if requested and requested > MAX_DRAW_SIZE:
+            log("SCALE", f"requested size {requested}mm capped to {MAX_DRAW_SIZE}mm")
+        return MAX_DRAW_SIZE
+
     if action == "write":
-        cmd = [py, os.path.join(HUENIT_DIR, "huenit_write.py"), content]
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_write.py"), content,
+               "--paper-width", str(MAX_DRAW_SIZE)]
         if size:
             cmd += ["--size", str(size)]
     elif action == "draw":
+        capped = size
+        if size and size > MAX_DRAW_SIZE:
+            log("SCALE", f"draw size {size}mm capped to {MAX_DRAW_SIZE}mm")
+            capped = MAX_DRAW_SIZE
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_draw.py"), content]
-        if size:
-            cmd.append(str(size))
+        if capped:
+            cmd.append(str(capped))
     elif action == "svg":
         # Resolve bare filename → ~/Downloads/filename
         svg_path = content
         if not os.path.dirname(svg_path):
             svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
-        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
-        if size:
-            cmd += ["--size", str(size)]
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
+               "--size", str(_svg_size(size))]
     elif action == "fetch":
         # Download SVG from URL, validate, then draw raw
         svg_path = "/tmp/robot_ross_fetched.svg"
@@ -475,9 +492,8 @@ def run_draw(action, content, size=None):
             print(f"  ❌ SVG fetch failed: {err[:300]}")
             return False
         print(f"  ✅ SVG ready: {svg_path}")
-        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
-        if size:
-            cmd += ["--size", str(size)]
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
+               "--size", str(_svg_size(size))]
     elif action == "image":
         # Convert image → SVG, then draw
         img_path = os.path.expanduser(content)
@@ -493,9 +509,8 @@ def run_draw(action, content, size=None):
             print(f"  ❌ Image conversion failed: {err[:300]}")
             return False
         print(f"  ✅ SVG ready: {svg_path}")
-        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path]
-        if size:
-            cmd += ["--size", str(size)]
+        cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
+               "--size", str(_svg_size(size))]
     else:
         print(f"  ⚠  Unknown action: {action}")
         return False
