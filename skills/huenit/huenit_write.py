@@ -303,6 +303,25 @@ class Pen:
         self.cursor_y = y
 
 
+# ── Word wrap ─────────────────────────────────────────────────────────────────
+def word_wrap(text, max_width, size, spacing):
+    """Split text into lines that each fit within max_width at given size."""
+    words = text.split(' ')
+    lines = []
+    current = ''
+    for word in words:
+        candidate = (current + ' ' + word).strip()
+        if calculate_text_width(candidate, size, spacing) <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines if lines else [text]
+
+
 # ── Text rendering ────────────────────────────────────────────────────────────
 def render_text(pen, text, size, spacing):
     """Render text string. Letters are drawn in X direction, Y is up."""
@@ -383,6 +402,8 @@ def main():
                         help="Usable paper width in mm — font auto-scales to fit (default 180)")
     parser.add_argument("--margin", type=float, default=10.0,
                         help="Left+right margin in mm each side (default 10)")
+    parser.add_argument("--min-size", type=float, default=5.0,
+                        help="Minimum font size in mm — wrap to more lines rather than go smaller (default 5)")
     args = parser.parse_args()
 
     check_ready()
@@ -420,6 +441,15 @@ def main():
             print(f"  📐 Auto-scaled: {args.size:.1f}mm → {effective_size:.1f}mm to fit {usable_width:.0f}mm usable width")
         else:
             print(f"  📐 Font fits: {effective_size:.1f}mm letters within {usable_width:.0f}mm")
+
+    # If auto-scale went below minimum readable size, clamp and word-wrap instead
+    if effective_size < args.min_size:
+        effective_size = args.min_size
+        wrapped = []
+        for line in lines:
+            wrapped.extend(word_wrap(line, usable_width, effective_size, args.spacing))
+        lines = wrapped
+        print(f"  📐 Min size floor {args.min_size:.1f}mm — wrapped to {len(lines)} line(s)")
 
     line_height = effective_size * args.line_spacing
     preview = args.text.replace('\n', ' / ')
