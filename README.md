@@ -17,19 +17,19 @@ The end goal is a fully automated **Artist-as-a-Service**: customers buy a slot 
 Full diagram: `~/Downloads/robot-ross-architecture.txt`
 
 ```
- 🛒 Shopify ──► Salesman VPS ──► Tailscale ──────────────────────┐
-                                                                  │
- 📱 Telegram ───────────────────────────────────────────────────► OpenClaw (Haiku)
-                                                                       │
-                                    ┌──────────────────────────────────┘
+ 🛒 Shopify ──► Salesman VPS ──► artist_poller.py (polls every 180s) ──┐
+                (api.robotross.art, HTTPS)                              │
+ 📱 Telegram ───────────────────────────────────────────────────────► OpenClaw (Haiku)
+                                                                             │
+                                    ┌────────────────────────────────────────┘
                                     ▼
  Google Quick Draw ◄── quickdraw_compose ◄──────────── bob_ross.py
- Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS Studio ──► ~/Movies/ ──► YouTube
+ Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS ──► ffmpeg ──► YouTube (unlisted)
  Local photo       ◄── image_to_svg     ◄────────────── ├── Apertus 8B (narration)
  Text/calligraphy  ◄── huenit_write     ◄────────────── └── order_log ──► orders.xlsx
-                                    │
-                               Huenit Arm (≤125mm)
-                            Paper · 10×10 board
+                                    │                              │
+                               Huenit Arm (≤125mm)                 └──► artist_poller ──► Salesman
+                            Paper · 10×10 board                         (proof-of-work URL)
 ```
 
 ---
