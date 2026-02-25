@@ -871,6 +871,22 @@ def main():
         video_path = obs_manager.stop_show()
         if video_path:
             log("OBS", f"recording saved: {video_path}")
+            # Remux to MP4 with faststart so YouTube can stream from the start
+            mp4_path = video_path.rsplit(".", 1)[0] + ".mp4"
+            try:
+                ffmpeg = "/opt/homebrew/bin/ffmpeg"
+                result = subprocess.run(
+                    [ffmpeg, "-y", "-i", video_path, "-c", "copy",
+                     "-movflags", "faststart", mp4_path],
+                    capture_output=True, timeout=120
+                )
+                if result.returncode == 0:
+                    log("FFMPEG", f"remuxed to MP4: {mp4_path}")
+                    video_path = mp4_path
+                else:
+                    log("FFMPEG", f"remux failed (uploading original): {result.stderr.decode()[:200]}")
+            except Exception as e:
+                log("FFMPEG", f"remux error (uploading original): {e}")
             try:
                 import youtube_upload
                 prompt_text = getattr(args, "_original_content", args.content)

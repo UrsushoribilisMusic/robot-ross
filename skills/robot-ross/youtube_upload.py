@@ -71,7 +71,7 @@ def youtube_upload(
     buyer: Optional[str] = None,
     prompt: Optional[str] = None,
     description: Optional[str] = None,
-    privacy_status: str = "private",
+    privacy_status: str = "unlisted",
     client_secrets_file: str = DEFAULT_CLIENT_SECRETS,
     token_file: str = DEFAULT_TOKEN_FILE,
 ) -> Optional[str]:
@@ -135,7 +135,7 @@ def main() -> int:
     parser.add_argument("--description", default=None, help="Extra description text")
     parser.add_argument(
         "--privacy-status",
-        default="private",
+        default="unlisted",
         choices=["public", "unlisted", "private"],
         help="YouTube privacy status",
     )
