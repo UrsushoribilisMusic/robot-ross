@@ -875,17 +875,15 @@ def main():
         if video_path:
             log("OBS", f"recording saved: {video_path}")
             # ── TRIM — cut everything before the last beep ─────────────────
+            ffmpeg = "/opt/homebrew/bin/ffmpeg"
             if _recording_start is not None:
                 trim_offset = max(0.0, _beep_end - _recording_start)
                 trimmed = video_path.rsplit(".", 1)
                 trimmed = trimmed[0] + "_trimmed." + (trimmed[1] if len(trimmed) > 1 else "mov")
                 log("TRIM", f"cutting first {trim_offset:.1f}s (beeps + setup)")
                 trim_result = subprocess.run(
-                    ["/opt/homebrew/bin/ffmpeg", "-y",
-                     "-ss", f"{trim_offset:.2f}",
-                     "-i", video_path,
-                     "-c", "copy",
-                     trimmed],
+                    [ffmpeg, "-y", "-ss", f"{trim_offset:.2f}",
+                     "-i", video_path, "-c", "copy", trimmed],
                     capture_output=True,
                 )
                 if trim_result.returncode == 0 and os.path.exists(trimmed):
@@ -894,6 +892,21 @@ def main():
                 else:
                     err = trim_result.stderr.decode(errors="replace")[-200:]
                     log("TRIM", f"ffmpeg failed, uploading untrimmed — {err}")
+            # ── REMUX — MOV → MP4 faststart for YouTube compatibility ────────
+            mp4_path = video_path.rsplit(".", 1)[0] + ".mp4"
+            try:
+                result = subprocess.run(
+                    [ffmpeg, "-y", "-i", video_path, "-c", "copy",
+                     "-movflags", "faststart", mp4_path],
+                    capture_output=True, timeout=120
+                )
+                if result.returncode == 0:
+                    log("FFMPEG", f"remuxed to MP4: {mp4_path}")
+                    video_path = mp4_path
+                else:
+                    log("FFMPEG", f"remux failed (uploading original): {result.stderr.decode()[:200]}")
+            except Exception as e:
+                log("FFMPEG", f"remux error (uploading original): {e}")
             try:
                 import youtube_upload
                 prompt_text = getattr(args, "_original_content", args.content)

@@ -106,6 +106,18 @@ def set_video(row, url):
     print(f"Row {row}: video URL set.")
 
 
+def get_last_video_url():
+    """Return the last non-empty Video URL from the orders sheet, or None."""
+    wb = _load()
+    ws = wb.active
+    result = None
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        val = row[COL_VIDEO_URL - 1]
+        if val:
+            result = str(val)
+    return result
+
+
 def set_posted(row):
     wb = _load()
     ws = wb.active

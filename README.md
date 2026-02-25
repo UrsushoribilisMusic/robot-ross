@@ -1,6 +1,6 @@
 # Robot Ross — Artist-as-a-Service
 
-> A Huenit robot arm that draws, narrates, and one day sells its work online.
+> A Huenit robot arm that draws, narrates, and sells its work online.
 
 ---
 
@@ -17,19 +17,19 @@ The end goal is a fully automated **Artist-as-a-Service**: customers buy a slot 
 Full diagram: `~/Downloads/robot-ross-architecture.txt`
 
 ```
- 🛒 Shopify ──► Salesman VPS ──► Tailscale ──────────────────────┐
-                                                                  │
- 📱 Telegram ───────────────────────────────────────────────────► OpenClaw (Haiku)
-                                                                       │
-                                    ┌──────────────────────────────────┘
+ 🛒 Shopify ──► Salesman VPS ──► artist_poller.py (polls every 180s) ──┐
+                (api.robotross.art, HTTPS)                              │
+ 📱 Telegram ───────────────────────────────────────────────────────► OpenClaw (Haiku)
+                                                                             │
+                                    ┌────────────────────────────────────────┘
                                     ▼
  Google Quick Draw ◄── quickdraw_compose ◄──────────── bob_ross.py
- Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS Studio ──► ~/Movies/ ──► YouTube
+ Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS ──► ffmpeg ──► YouTube (unlisted)
  Local photo       ◄── image_to_svg     ◄────────────── ├── Apertus 8B (narration)
  Text/calligraphy  ◄── huenit_write     ◄────────────── └── order_log ──► orders.xlsx
-                                    │
-                               Huenit Arm
-                            Paper · 10×10 board
+                                    │                              │
+                               Huenit Arm (≤125mm)                 └──► artist_poller ──► Salesman
+                            Paper · 10×10 board                         (proof-of-work URL)
 ```
 
 ---
@@ -49,7 +49,7 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | Job lock, caffeinate, SIGTERM stop | `robot-ross/bob_ross.py` | ✅ |
 | Desktop .command shortcuts | `~/Desktop/` | ✅ |
 
-### Phase 2 — Automated Studio (✅ Built, 🔧 Wiring in Progress)
+### Phase 2 — Automated Studio (✅ Built)
 
 | Feature | File | Status |
 |---|---|---|
@@ -57,12 +57,18 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | Internet SVG fetch with sanitisation | `huenit/huenit_sketch.py` | ✅ |
 | OBS recording + streaming control | `robot-ross/obs_manager.py` | ✅ |
 | OBS auto-start/stop per job | `robot-ross/bob_ross.py` | ✅ |
+| Trim recording to start after last beep | `robot-ross/bob_ross.py` | ✅ PR #8 |
+| Wrap long write-text into multiple lines | `huenit/huenit_write.py` | ✅ PR #10 |
+| Drawing area hard-capped at 125mm | `robot-ross/bob_ross.py` | ✅ PR #14 |
+| Font digits 0–9 complete | `huenit/huenit_write.py` | ✅ PR #14 |
 | Order ledger (orders.xlsx) | `robot-ross/order_log.py` | ✅ |
-| Shopify order parsing in SOUL.md | `SOUL.md` | ✅ |
+| YouTube Shorts upload (OAuth2) | `robot-ross/youtube_upload.py` | ✅ PR #7 |
 | Buyer name → personalised narration | `robot-ross/bob_ross.py` | ✅ |
 | `--direct` flag (no preview for orders) | `robot-ross/bob_ross.py` | ✅ |
+| Salesman REST API client | `robot-ross/salesman_client.py` | ✅ |
+| Artist order poller (auto-start on login) | `robot-ross/artist_poller.py` | ✅ |
 | Tailscale gateway (Artist ↔ Salesman) | `openclaw.json` | 🔧 Needs VPS |
-| Salesman VPS + Shopify webhook | Cloud | 🔧 Pending |
+| Salesman: populate type/content/buyer from Shopify (#13) | Cloud | 🔧 agent:gemini |
 | YouTube stream key configuration | OBS Settings | 🔧 Pending |
 
 ### Explored & Parked
@@ -75,7 +81,8 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 
 | Component | Details |
 |---|---|
-| Robot arm | Huenit, USB serial `/dev/cu.usbserial-310` |
+| Robot arm | Huenit, USB serial `/dev/cu.usbserial-310`, z_up: 6.0mm |
+| Drawing area | Hard-capped at 125mm (physical limit confirmed 120–125mm) |
 | Computer | Mac mini M4, macOS Sequoia |
 | Camera | Reolink 4K, IP `192.168.1.40` |
 | Camera stream | `rtsp://admin:****@192.168.1.40:554/Preview_01_sub` |
@@ -89,7 +96,7 @@ The final product is a **100-slot physical installation**. Each slot is a 10×10
 
 - **Revenue model**: sell 100 slots × CHF X per slot
 - **Content**: live YouTube drawing sessions, YouTube Shorts from each recording
-- **Proof of work**: OBS recording saved per order, path logged in `orders.xlsx`
+- **Proof of work**: OBS recording saved per order, URL logged in `orders.xlsx`
 - **Physical fulfilment**: `orders.xlsx` tracks Posted and Shipped per order
 
 ---
@@ -117,7 +124,7 @@ brew install potrace    # optional, for potrace pipeline
 ```bash
 cd ~/.openclaw/workspace/skills/robot-ross
 
-# Write text
+# Write text (auto-scaled to ≤125mm paper width)
 /usr/bin/python3 bob_ross.py write "Hello World"
 
 # Quick Draw sketch (preview first)
@@ -135,6 +142,21 @@ cd ~/.openclaw/workspace/skills/robot-ross
 
 # System check
 /usr/bin/python3 bob_ross.py check
+```
+
+### Artist order poller
+
+The poller auto-starts on login via LaunchAgent. To run manually:
+
+```bash
+# Start with caffeinate (prevents sleep during draws)
+caffeinate -d -i /usr/bin/python3 artist_poller.py
+
+# Check poller log
+tail -f ~/.openclaw/workspace/skills/robot-ross/poller.log
+
+# LaunchAgent (auto-start on login, auto-restart on crash)
+# ~/Library/LaunchAgents/com.robotross.poller.plist
 ```
 
 ### OBS recording
@@ -172,26 +194,91 @@ cd ~/.openclaw/workspace/skills/robot-ross
 
 ---
 
+## Order Ledger (orders.xlsx)
+
+Every order is tracked in `skills/robot-ross/orders.xlsx` with the following columns:
+
+| Column | Set by | Description |
+|---|---|---|
+| Received At | `order_log.start()` auto | Timestamp when bob_ross.py accepted the order |
+| Buyer | `order_log.start()` auto | Customer name from Shopify / Telegram |
+| Order Type | `order_log.start()` auto | `write`, `sketch`, `svg`, `fetch`, `draw`, `image` |
+| Content | `order_log.start()` auto | The text prompt or file path |
+| Produced At | `order_log.end()` auto | Timestamp when the drawing completed |
+| Status | `order_log.end()` auto | `success` or `failed` |
+| Video URL | `order_log.set_video()` auto | YouTube Shorts URL (set by artist_poller after upload) |
+| Posted | `order_log.set-posted` manual | Marked when the YouTube Shorts link has been shared |
+| Shipped | `order_log.set-shipped` manual | Marked when physical artwork has been mailed |
+
+The Video URL column is also read back by `artist_poller.py` via `get_last_video_url()` to include the YouTube proof link in the `complete()` call back to Salesman.
+
+### Drawing area test
+
+```bash
+# Draws concentric squares at 100–180mm to verify arm travel limits
+/usr/bin/python3 draw_size_test.py
+```
+
+---
+
 ## Automated Shopify Order Flow (Phase 2)
 
-When fully wired, each order follows this sequence automatically:
+```mermaid
+sequenceDiagram
+    actor Buyer
+    participant Shopify
+    participant Salesman as Salesman VPS
+    participant Poller as artist_poller.py
+    participant BobRoss as bob_ross.py
+    participant Arm as Huenit Arm
+    participant YouTube
+    participant Ledger as orders.xlsx
 
+    Buyer->>Shopify: Purchases slot (type, content, name)
+    Shopify->>Salesman: POST /webhook/orders/paid
+    Salesman->>Salesman: Adds order to backlog (status=new)
+
+    loop Every 180s
+        Poller->>Salesman: GET /salesman/orders/incoming?status=new
+        Salesman-->>Poller: order { id, type, content, buyer }
+    end
+
+    Poller->>Salesman: POST /orders/:id/claim (idempotency key)
+    Poller->>Salesman: POST /orders/:id/ack
+    Poller->>Ledger: order_log.start() → row (Received At, Buyer, Type, Content)
+
+    Poller->>BobRoss: bob_ross.py <type> <content> --direct --buyer <name>
+    BobRoss->>BobRoss: OBS start recording + warning beep
+    BobRoss->>Arm: Draw artwork (≤125mm, G-code over USB serial)
+    BobRoss->>BobRoss: Apertus narration (Bob Ross style)
+    BobRoss->>BobRoss: OBS stop + ffmpeg trim (cut dead air before beep)
+    BobRoss->>YouTube: Upload trimmed .mov as private YouTube Short
+    YouTube-->>BobRoss: YouTube URL
+    BobRoss->>Ledger: order_log.end() → Status, Produced At, Video URL
+
+    Poller->>Ledger: get_last_video_url()
+    Ledger-->>Poller: https://youtu.be/...
+    Poller->>Salesman: POST /orders/:id/complete { proofType: youtube, proofUrl }
+
+    Note over Salesman,Shopify: ⚠️ Pending (issue #13 / agent:gemini)
+    Salesman-->>Shopify: Update order with proof-of-work video URL
+    Salesman-->>Buyer: Notify via Telegram / email with video link
 ```
-1. Customer buys slot on Shopify
-2. Shopify → webhook → Salesman VPS
-3. Salesman → Tailscale → Artist gateway
-4. Artist brain receives:
-   ORDER #1042 | buyer: Alice | type: sketch | content: a lighthouse
-5. bob_ross.py sketch "a lighthouse" --direct --buyer "Alice"
-   → OBS starts recording
-   → Apertus: "Good morning, Alice. Let's draw some happy little lines..."
-   → Arm draws
-   → OBS stops, .mov saved
-   → YouTube upload (Shorts metadata includes buyer + prompt + #Shorts)
-   → order_log updated (received, produced, video URL)
-6. Artist replies: DONE #1042 | status: success | video: https://youtube.com/...
-7. Salesman notifies customer via Telegram/email
-```
+
+### Status of each step
+
+| Step | Status |
+|---|---|
+| Shopify → Salesman webhook | ✅ Live (Robot Ross store) |
+| Salesman order backlog | ✅ `/incoming?status=new` queue |
+| Artist polls Salesman | ✅ `artist_poller.py` every 180s, auto-starts on login |
+| Atomic claim (prevent double-draw) | ✅ idempotency key + HTTP 409 guard |
+| Drawing sequence + OBS recording | ✅ `bob_ross.py` |
+| Video trim (remove dead air) | ✅ ffmpeg after last beep |
+| YouTube upload + order ledger update | ✅ `youtube_upload.py` + `order_log` |
+| Artist → Salesman proof-of-work callback | ✅ `sc.complete(video_url=...)` |
+| Salesman → Shopify order update with video | ⚠️ Pending — issue #13 (agent:gemini) |
+| Customer notification (Telegram / email) | ⚠️ Pending — issue #13 (agent:gemini) |
 
 ---
 
@@ -202,14 +289,17 @@ workspace/
 ├── SOUL.md                         # Agent brain instructions
 ├── skills/
 │   ├── robot-ross/
-│   │   ├── bob_ross.py             # Main orchestrator
+│   │   ├── bob_ross.py             # Main orchestrator (MAX_DRAW_SIZE=125)
+│   │   ├── artist_poller.py        # Shopify order poller (polls Salesman every 180s)
+│   │   ├── salesman_client.py      # Salesman REST API client
 │   │   ├── obs_manager.py          # OBS WebSocket controller
 │   │   ├── order_log.py            # Excel order ledger
 │   │   ├── youtube_upload.py       # YouTube Data API v3 uploader (OAuth2)
+│   │   ├── draw_size_test.py       # Arm travel limit test (draws squares 100–180mm)
 │   │   └── orders.xlsx             # The ledger
 │   ├── huenit/
 │   │   ├── huenit_svg.py           # SVG → arm (Bezier-aware)
-│   │   ├── huenit_write.py         # Text calligraphy
+│   │   ├── huenit_write.py         # Text calligraphy (digits 0–9, wraps at 255 chars)
 │   │   ├── huenit_draw.py          # Shapes + calibration
 │   │   ├── huenit_sketch.py        # Internet SVG fetch + draw
 │   │   ├── quickdraw_compose.py    # Ollama + Quick Draw scene composer
