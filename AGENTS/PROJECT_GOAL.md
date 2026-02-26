@@ -28,3 +28,19 @@ on a 10×10 Wall of Fame — drawn live on YouTube, artwork shipped to buyers.
 - [ ] PR opened and description includes "Closes #N"
 - [ ] SOUL.md updated if agent behaviour changed
 - [ ] README updated if user-facing behaviour changed
+
+## Session Checkpoint (February 25, 2026)
+
+- Salesman/cloud pipeline is functioning end-to-end in production:
+  - webhook ingest
+  - queue claim/ack/complete
+  - proof URL write-back to Shopify metafield `custom.proof_of_work`.
+- Verified working order example from production:
+  - `shopify_7440989946193`
+  - `status=complete`
+  - proof URL persisted
+  - `shopifySync.status=ok`.
+- Field-mapping bug and diagnostics were fixed on Salesman side and merged.
+- Artist-side fix was implemented and merged by Claude:
+  - route prompt-like `type=svg` to `sketch --direct`
+  - send `proofOfWorkUrl` in completion payload.

@@ -162,6 +162,12 @@ def start_show(buyer_name=None, prompt=None, record_only=False):
         cl.start_record()
         print("Recording started.")
 
+    # Mute camera RTSP audio — Mac Mini audio (BlackHole) is the intended source
+    try:
+        cl.set_input_mute(SOURCE_CAM, True)
+    except Exception:
+        pass
+
     switch_scene(SCENE_ARTIST)
 
     status_text = "Robot Ross is drawing..."

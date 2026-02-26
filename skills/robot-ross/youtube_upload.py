@@ -104,7 +104,7 @@ def youtube_upload(
                     "tags": ["RobotRoss", "Shorts"],
                     "categoryId": DEFAULT_CATEGORY_ID,
                 },
-                "status": {"privacyStatus": privacy_status},
+                "status": {"privacyStatus": privacy_status, "selfDeclaredMadeForKids": False},
             },
             media_body=media,
         )

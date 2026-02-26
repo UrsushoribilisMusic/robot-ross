@@ -172,3 +172,17 @@ DONE #<id> | status: failed | error: arm subprocess error
 - Never use `tts` or voice to substitute for actually running the arm
 - Do NOT play any music, MP3 files, or audio before running the command — the script handles all sounds internally (warning tone + narration)
 - If the ready flag is missing, tell the user they need to calibrate first
+
+## Session Checkpoint (February 25, 2026)
+
+- Shopify webhook ingest is live and verified on `https://api.robotross.art/salesman/webhooks/order-created`.
+- Salesman payload mapping now works with Shopify line-item properties:
+  - `drawing_type=graphics` maps to `type=svg` upstream.
+  - `prompt` maps to `content`.
+- Artist poller fix is required for prompt-based svg orders:
+  - If `type=svg` and content is not an SVG file/URL, execute `sketch --direct` instead of `svg`.
+- Salesman complete callback requires `proofOfWorkUrl` (camelCase). Sending only `proofUrl` fails with `proof_of_work_url_required`.
+- Proof write-back to Shopify is verified:
+  - order reaches `complete`
+  - `shopifySync.status=ok`
+  - metafield key is `custom.proof_of_work`.
