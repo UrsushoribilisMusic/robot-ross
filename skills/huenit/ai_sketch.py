@@ -49,7 +49,8 @@ def _load_api_key() -> str:
     return key
 
 
-def generate_svg(prompt: str) -> str:
+def generate_svg(prompt: str) -> tuple:
+    """Returns (svg_str, usage_dict)."""
     api_key = _load_api_key()
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
@@ -70,6 +71,8 @@ def generate_svg(prompt: str) -> str:
     with urllib.request.urlopen(req, timeout=30) as resp:
         result = json.load(resp)
 
+    usage = result.get("usage", {})
+
     svg = result["content"][0]["text"].strip()
     # Strip markdown fences (model often wraps in ```svg or ```xml despite instructions)
     svg = re.sub(r"^```[a-zA-Z]*\n?", "", svg)
@@ -80,7 +83,7 @@ def generate_svg(prompt: str) -> str:
         svg = match.group(1)
     if not svg.startswith("<svg"):
         raise ValueError(f"Response does not look like SVG:\n{svg[:200]}")
-    return svg
+    return svg, usage
 
 
 def svg_to_png(svg_path: str, png_path: str) -> bool:
@@ -112,7 +115,7 @@ def main():
 
     print(f"  Generating AI sketch for: {args.prompt!r}")
     try:
-        svg = generate_svg(args.prompt)
+        svg, usage = generate_svg(args.prompt)
     except Exception as e:
         print(f"  ❌ AI sketch generation failed: {e}", file=sys.stderr)
         sys.exit(1)
@@ -121,7 +124,11 @@ def main():
         f.write(svg)
 
     elements = len(re.findall(r"<(path|circle|ellipse|line|polyline|rect)\b", svg))
+    in_tok  = usage.get("input_tokens", 0)
+    out_tok = usage.get("output_tokens", 0)
+    total   = in_tok + out_tok
     print(f"  ✅ SVG generated: {elements} elements → {args.out}")
+    print(f"  TOKENS — input={in_tok} output={out_tok} total={total}")
 
     if args.png_out:
         ok = svg_to_png(args.out, args.png_out)
