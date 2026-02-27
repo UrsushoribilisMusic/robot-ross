@@ -611,16 +611,25 @@ def main():
         png_path = "/tmp/quickdraw_scene_preview.png"
 
         log("SKETCH", f"prompt={prompt!r}")
-        print(f"  Composing Quick Draw scene for: {prompt!r}")
+        print(f"  Generating AI sketch for: {prompt!r}")
 
         compose_cmd = [
             sys.executable,
-            os.path.join(HUENIT_DIR, "quickdraw_compose.py"),
+            os.path.join(HUENIT_DIR, "ai_sketch.py"),
             prompt,
             "--out", svg_path,
             "--png-out", png_path,
         ]
-        result = subprocess.run(compose_cmd, capture_output=False)
+        result = subprocess.run(compose_cmd, capture_output=True, text=True)
+        # Print live output so it's visible in terminal / poller log
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        # Log token usage line if present
+        for line in result.stdout.splitlines():
+            if "TOKENS" in line:
+                log("AI TOKENS", line.strip())
         if result.returncode != 0 or not os.path.exists(svg_path):
             print("  ❌ Scene composition failed")
             sys.exit(1)
