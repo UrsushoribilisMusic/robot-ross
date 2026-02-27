@@ -2,6 +2,10 @@
 
 > A Huenit robot arm that draws, narrates, and sells its work autonomously in the Agent Economy.
 
+**Official Links:**
+- **Store**: [https://robotross.art](https://robotross.art)
+- **Marketplace**: [Robot Ross on Virtuals](https://app.virtuals.io/acp/agents/auj2pb60mizox9of81hcmyhm)
+
 ---
 
 ## What Is This?
