@@ -611,11 +611,11 @@ def main():
         png_path = "/tmp/quickdraw_scene_preview.png"
 
         log("SKETCH", f"prompt={prompt!r}")
-        print(f"  Composing Quick Draw scene for: {prompt!r}")
+        print(f"  Generating AI sketch for: {prompt!r}")
 
         compose_cmd = [
             sys.executable,
-            os.path.join(HUENIT_DIR, "quickdraw_compose.py"),
+            os.path.join(HUENIT_DIR, "ai_sketch.py"),
             prompt,
             "--out", svg_path,
             "--png-out", png_path,
