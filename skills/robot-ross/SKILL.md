@@ -50,6 +50,12 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 /usr/bin/python3 bob_ross.py draw square
 ```
 
+### Wall snapshot (after pinning artwork to the wall)
+```bash
+/usr/bin/python3 wall_snapshot.py
+# Captures board camera via OBS → pushes to api.robotross.art/wall
+```
+
 ### System
 ```bash
 /usr/bin/python3 bob_ross.py check       # readiness check
