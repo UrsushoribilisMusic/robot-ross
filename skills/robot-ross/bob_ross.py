@@ -359,6 +359,8 @@ def generate_narration(action, content, buyer=None):
             action_desc = f"write {len(text_lines)} lines of text: {' / '.join(text_lines)}"
         else:
             action_desc = f"write the text '{speakable}'"
+    elif action == "sketch":
+        action_desc = f"draw a sketch of '{speakable}'"
     elif action == "image":
         action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
@@ -438,6 +440,33 @@ def run_commentary(phrases, draw_done):
         draw_done.wait(timeout=COMMENTARY_INTERVAL)
 
 
+# ── Drawing markers (crop corners + signature) ────────────────────────────────
+_DRAWING_MARKERS = """\
+  <!-- Crop corner marks -->
+  <line x1="118" y1="1"   x2="124" y2="1"   stroke="black" fill="none" stroke-width="0.5"/>
+  <line x1="124" y1="1"   x2="124" y2="7"   stroke="black" fill="none" stroke-width="0.5"/>
+  <line x1="1"   y1="118" x2="1"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
+  <line x1="1"   y1="124" x2="7"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
+  <!-- Signature: R.R (stick letters, bottom-right) -->
+  <path d="M108,116 L108,110 L111,110 L112,111 L112,112 L111,113 L108,113 M111,113 L112,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <path d="M113,115 L113,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <path d="M114,116 L114,110 L117,110 L118,111 L118,112 L117,113 L114,113 M117,113 L118,116" stroke="black" fill="none" stroke-width="0.5"/>
+"""
+
+
+def _add_drawing_markers(svg_path: str) -> None:
+    """Inject crop corner marks and R.R signature into SVG before drawing."""
+    try:
+        with open(svg_path) as f:
+            svg = f.read()
+        svg = svg.replace("</svg>", _DRAWING_MARKERS + "</svg>")
+        with open(svg_path, "w") as f:
+            f.write(svg)
+        log("MARKERS", "corner marks + signature added")
+    except Exception as e:
+        log("MARKERS ERROR", f"could not add markers: {e}")
+
+
 # ── Drawing ───────────────────────────────────────────────────────────────────
 def run_draw(action, content, size=None):
     """
@@ -476,6 +505,7 @@ def run_draw(action, content, size=None):
         svg_path = content
         if not os.path.dirname(svg_path):
             svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
+        _add_drawing_markers(svg_path)
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
     elif action == "fetch":
@@ -492,6 +522,7 @@ def run_draw(action, content, size=None):
             print(f"  ❌ SVG fetch failed: {err[:300]}")
             return False
         print(f"  ✅ SVG ready: {svg_path}")
+        _add_drawing_markers(svg_path)
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
     elif action == "image":
@@ -811,7 +842,11 @@ def main():
     # ── GENERATE NARRATION ────────────────────────────────────────────────────
     if not args.no_voice:
         log("NARRATION", "requesting from Apertus")
-        narration = generate_narration(args.action, args.content, buyer=args.buyer)
+        narration = generate_narration(
+            getattr(args, "_original_action", args.action),
+            getattr(args, "_original_content", args.content),
+            buyer=args.buyer,
+        )
         log("NARRATION", "ready" if narration.get("intro") else "using fallback")
     else:
         narration = {"intro": "", "commentary": [], "outro": ""}
