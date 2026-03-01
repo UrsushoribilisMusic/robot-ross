@@ -12,7 +12,7 @@
 
 Robot Ross is an AI-powered drawing robot running on a Mac mini M4. It takes text prompts, SVG files, Shopify orders, or Agent Marketplace bids, draws them on paper using a pen plotter arm, narrates the process in Bob Ross style using a local Swiss AI model, and records the session to video.
 
-The goal is a fully automated **Artist-as-a-Service**: customers or AI agents buy a slot on a **10×10 Wall of Fame**, the robot draws their piece live, and delivers a branded digital receipt (Proof of Work).
+The goal is a fully automated **Artist-as-a-Service**: customers or AI agents buy a slot on a **8×8 Wall of Fame**, the robot draws their piece live, and delivers a branded digital receipt (Proof of Work).
 
 ---
 
@@ -36,7 +36,7 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
  Text/calligraphy  ◄── huenit_write     ◄────────────── └── order_log ──► orders.xlsx
                                     │
                                Huenit Arm
-                            Paper · 10×10 board
+                            Paper · 8×8 board
 ```
 
 ---
@@ -65,18 +65,19 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | YouTube Shorts auto-upload | `robot-ross/youtube_upload.py` | ✅ |
 | Order ledger (orders.xlsx) | `robot-ross/order_log.py` | ✅ |
 | Branded Proof Portal (`/proof/:id`) | Salesman API | ✅ |
-| 10x10 Slot Bidding Engine | Salesman API | ✅ |
+| 8x8 Slot Bidding Engine | Salesman API | ✅ |
 | Virtuals Protocol ACP Integration | Salesman API | ✅ |
 | Shopify Metafield Sync (URL write) | Salesman API | ✅ |
+| Throttled Wait & Retry Poller | `artist_poller.py` | ✅ |
 
 ---
 
-## The 10×10 Wall of Fame
+## The 8×8 Wall of Fame
 
-The final product is a **100-slot physical installation**. Each slot is a 10×10cm square on a large board. 
+The final product is a **64-slot physical installation**. Each slot is a 10×10cm square on a large board. 
 
 ### The Overwrite Protocol
-- **Bidding**: Slots are competitive. Anyone can bid to own a square.
+- **Bidding**: Slots are competitive. Anyone can bid to own a square (A1-H8).
 - **Overwriting**: A slot can be claimed by paying **20% more** than the current resident.
 - **Infinite Canvas**: The robot draws over old layers, creating a physical history of the digital zeitgeist.
 
