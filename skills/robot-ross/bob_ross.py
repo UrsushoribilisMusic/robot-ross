@@ -448,9 +448,9 @@ _DRAWING_MARKERS = """\
   <line x1="1"   y1="118" x2="1"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
   <line x1="1"   y1="124" x2="7"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
   <!-- Signature: R.R (stick letters, bottom-right) -->
-  <path d="M108,116 L108,110 L111,110 L112,111 L112,112 L111,113 L108,113 M111,113 L112,116" stroke="black" fill="none" stroke-width="0.5"/>
-  <path d="M113,115 L113,116" stroke="black" fill="none" stroke-width="0.5"/>
-  <path d="M114,116 L114,110 L117,110 L118,111 L118,112 L117,113 L114,113 M117,113 L118,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <path d="M100,116 L100,110 L103,110 L104,111 L104,112 L103,113 L100,113 M103,113 L104,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <path d="M105,115 L105,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <path d="M106,116 L106,110 L109,110 L110,111 L110,112 L109,113 L106,113 M109,113 L110,116" stroke="black" fill="none" stroke-width="0.5"/>
 """
 
 
