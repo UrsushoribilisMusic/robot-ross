@@ -16,15 +16,15 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 /usr/bin/python3 bob_ross.py write "Hello\nWorld" --size 15
 ```
 
-### Quick Draw sketch (preview → approve/cancel)
+### AI sketch (preview → approve/cancel)
 ```bash
 /usr/bin/python3 bob_ross.py sketch "a cat sitting on a fence"
-# → sends PNG preview to Telegram, waits for "draw" or "cancel"
+# → Claude Haiku generates SVG, sends PNG preview to Telegram, waits for "draw" or "cancel"
 /usr/bin/python3 bob_ross.py approve
 /usr/bin/python3 bob_ross.py cancel
 ```
 
-### Quick Draw sketch — direct (no preview, for orders)
+### AI sketch — direct (no preview, for orders)
 ```bash
 /usr/bin/python3 bob_ross.py sketch "a lighthouse" --direct --buyer "Alice"
 ```
@@ -73,12 +73,13 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 2. Job lock acquired (`/tmp/robot_ross_running.lock`)
 3. OBS recording starts (Workspace → Artist scene)
 4. caffeinate prevents Mac sleep
-5. Apertus generates narration
+5. Apertus generates narration (uses actual sketch prompt for richer commentary)
 6. Warning beeps — stand clear
-7. Arm draws + live commentary in parallel
-8. OBS stops, recording saved to `~/Movies/`
-9. Order ledger updated (orders.xlsx)
-10. Lock released
+7. Crop corner marks + R.R signature injected into SVG
+8. Arm draws + live commentary in parallel
+9. OBS stops, recording saved to `~/Movies/`
+10. Order ledger updated (orders.xlsx)
+11. Lock released
 
 ## Stop the arm
 Send `SIGTERM` to the process, or use the Stop Robot Ross desktop shortcut.
@@ -89,3 +90,5 @@ The arm lifts the pen and halts safely.
 - Delete `/tmp/robot_ross_running.lock` manually if the process crashed
 - OBS must be running for recording to work (job proceeds either way)
 - Port override: `HUENIT_PORT=/dev/cu.usbserial-XXX python3 bob_ross.py ...`
+- All SVG drawings include crop corner marks (⌐ top-right, └ bottom-left) and R.R signature
+- Crop config for wall snapshot: `wall_config.json` → `{"crop": [left, top, right, bottom]}`
