@@ -197,8 +197,7 @@ ENC_PAT = re.compile(
 
 class GCodeIO:
     def __init__(self, port, baud):
-        #self.ser = serial.Serial(port, baud, timeout=0.02)
-        self.ser = serial.Serial('/dev/cu.usbserial-310', 115200)
+        self.ser = serial.Serial(port, baud)
         self.buf = bytearray()
         self.lock = threading.Lock()
         self.rx = threading.Thread(target=self._rx_loop, daemon=True); self.rx.start()
