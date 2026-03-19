@@ -15,7 +15,7 @@ Options:
     --feed N        Drawing feed rate mm/min (default 400)
 """
 
-import sys, os, time, re, math, threading, json, argparse, subprocess
+import sys, os, time, re, math, threading, json, argparse, subprocess, tempfile
 import serial
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ Z_UP = 3.0  # default, overridden by calibration
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(SCRIPT_DIR, "calibration.json")
-READY_FLAG = "/tmp/huenit_ready.flag"
+READY_FLAG = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
 TILT_SLOPE = 0.0      # mm of Z correction per mm of Y travel (loaded from calibration)
 
 OK_PAT = re.compile(rb"\bok\b", re.I)

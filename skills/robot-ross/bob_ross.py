@@ -23,6 +23,7 @@ import time
 import signal
 import argparse
 import platform
+import tempfile
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -48,8 +49,9 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "bob_ross.log")
 
 # Telegram preview config
 TELEGRAM_CHAT_ID  = "997912895"
-PENDING_STATE     = "/tmp/robot_ross_pending.json"
-JOB_LOCK          = "/tmp/robot_ross_running.lock"
+_TMP              = tempfile.gettempdir()
+PENDING_STATE     = os.path.join(_TMP, "robot_ross_pending.json")
+JOB_LOCK          = os.path.join(_TMP, "robot_ross_running.lock")
 SEGMENTS_MIN      = 2000
 SEGMENTS_MAX      = 8000
 SEGMENTS_STEP     = 1000
@@ -320,21 +322,34 @@ def readiness_check():
     issues = []
 
     # Robot arm port
-    if not os.path.exists(PORT):
+    _port_ok = False
+    if platform.system() == "Windows":
+        # COM ports are not regular files on Windows — try opening briefly
+        try:
+            import serial
+            s = serial.Serial(PORT, 115200, timeout=0.5)
+            s.close()
+            _port_ok = True
+        except Exception:
+            pass
+    else:
+        _port_ok = os.path.exists(PORT)
+    if not _port_ok:
         issues.append(f"Robot arm port not found: {PORT}")
 
     # Calibration file
     if not os.path.exists(CALIBRATION_FILE):
         issues.append(
             "No calibration file found. "
-            "Run: python3 ~/.openclaw/workspace/skills/huenit/huenit_draw.py calibrate"
+            "Run: python skills\\huenit\\huenit_draw.py calibrate"
         )
 
     # Session ready flag (set by calibrate, cleared on reboot)
-    if not os.path.exists("/tmp/huenit_ready.flag"):
+    _ready_flag = os.path.join(_TMP, "huenit_ready.flag")
+    if not os.path.exists(_ready_flag):
         issues.append(
             "Robot not calibrated this session. "
-            "Run: python3 ~/.openclaw/workspace/skills/huenit/huenit_draw.py calibrate"
+            "Run: python skills\\huenit\\huenit_draw.py calibrate"
         )
 
     # Ollama reachable
@@ -527,7 +542,7 @@ def run_draw(action, content, size=None):
                "--size", str(_svg_size(size))]
     elif action == "fetch":
         # Download SVG from URL, validate, then draw raw
-        svg_path = "/tmp/robot_ross_fetched.svg"
+        svg_path = os.path.join(_TMP, "robot_ross_fetched.svg")
         fetch_cmd = [
             py, os.path.join(HUENIT_DIR, "huenit_sketch.py"),
             content, "--fetch-only", "--out", svg_path,
@@ -656,8 +671,8 @@ def main():
         if not args.content:
             parser.error("sketch requires a prompt, e.g.: sketch \"a cat on a bench\"")
         prompt = args.content
-        svg_path = "/tmp/quickdraw_scene.svg"
-        png_path = "/tmp/quickdraw_scene_preview.png"
+        svg_path = os.path.join(_TMP, "quickdraw_scene.svg")
+        png_path = os.path.join(_TMP, "quickdraw_scene_preview.png")
 
         log("SKETCH", f"prompt={prompt!r}")
         print(f"  Generating AI sketch for: {prompt!r}")
@@ -782,7 +797,7 @@ def main():
 
     if args.action == "calibrate":
         log("CALIBRATE", "starting interactive calibration")
-        subprocess.run(["python3", os.path.join(HUENIT_DIR, "huenit_draw.py"), "calibrate"])
+        subprocess.run([sys.executable, os.path.join(HUENIT_DIR, "huenit_draw.py"), "calibrate"])
         log("CALIBRATE", "calibration complete")
         sys.exit(0)
 

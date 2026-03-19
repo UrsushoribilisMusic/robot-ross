@@ -14,7 +14,7 @@ The drawing plane is X/Y. Z controls pen up/down.
 Calibrate first to find your Z_DOWN (pen touches paper) and Z_UP (pen lifted).
 """
 
-import sys, os, time, re, math, threading, json
+import sys, os, time, re, math, threading, json, tempfile
 import serial
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ Z_DOWN = 0.0          # mm to lower from up position to touch paper
 TILT_SLOPE = 0.0      # mm of Z correction per mm of Y travel (from tilt calibration)
 
 CALIBRATION_FILE = os.path.join(os.path.dirname(__file__), "calibration.json")
-READY_FLAG = "/tmp/huenit_ready.flag"
+READY_FLAG = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
 
 OK_PAT = re.compile(rb"\bok\b", re.I)
 

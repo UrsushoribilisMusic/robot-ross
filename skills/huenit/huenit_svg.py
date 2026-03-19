@@ -17,7 +17,7 @@ Bezier curves are approximated with line segments (CURVE_STEPS).
 Requires prior calibration: python3 huenit_draw.py calibrate
 """
 
-import sys, os, re, math, time, threading, argparse, json
+import sys, os, re, math, time, threading, argparse, json, tempfile
 import xml.etree.ElementTree as ET
 import serial
 
@@ -32,7 +32,7 @@ CIRCLE_STEPS  = 48     # line segments per full circle/ellipse
 
 SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(SCRIPT_DIR, "calibration.json")
-READY_FLAG       = "/tmp/huenit_ready.flag"
+READY_FLAG       = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
 
 Z_UP        = 6.0
 TILT_SLOPE  = 0.0     # mm of Z correction per mm of Y travel (loaded from calibration)
