@@ -22,6 +22,7 @@ import threading
 import time
 import signal
 import argparse
+import platform
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -184,13 +185,16 @@ def send_telegram_preview(png_path, caption):
             capture_output=True, timeout=30,
         )
         if result.returncode == 0:
-            print("  ✅ Preview sent to Telegram")
+            print("  Preview sent to Telegram")
             return True
         else:
-            print(f"  ⚠  Telegram send failed: {result.stderr.decode()[:200]}")
+            print(f"  Telegram send failed: {result.stderr.decode()[:200]}")
             return False
+    except FileNotFoundError:
+        print("  Telegram not available in local mode (openclaw not installed)")
+        return False
     except Exception as e:
-        print(f"  ⚠  Telegram send error: {e}")
+        print(f"  Telegram send error: {e}")
         return False
 
 
@@ -260,6 +264,14 @@ def preview_image(image_path, target_segments, max_px=800, blur=1.5):
     return True
 
 
+# ── openclaw helper (Mac only — skip silently on Windows) ─────────────────────
+def _openclaw(*args, **kwargs):
+    try:
+        subprocess.run(["openclaw"] + list(args), capture_output=True, **kwargs)
+    except FileNotFoundError:
+        pass  # openclaw not installed (Windows local mode)
+
+
 # ── Shared state ──────────────────────────────────────────────────────────────
 stop_flag = threading.Event()
 _draw_proc = None
@@ -284,16 +296,21 @@ def speak(text):
 
 
 def warning_tone():
-    """Three Ping beeps to warn humans to step away."""
-    ping = "/System/Library/Sounds/Ping.aiff"
+    """Three beeps to warn humans to step away."""
     for _ in range(3):
         if stop_flag.is_set():
             return
         try:
-            subprocess.run(["afplay", ping], capture_output=True, timeout=3)
+            if platform.system() == "Darwin":
+                subprocess.run(["afplay", "/System/Library/Sounds/Ping.aiff"],
+                               capture_output=True, timeout=3)
+            elif platform.system() == "Windows":
+                import winsound
+                winsound.Beep(1000, 200)
+            else:
+                subprocess.run(["beep"], capture_output=True, timeout=3)
         except Exception:
-            # Fallback: use say with a short beep word
-            subprocess.run(["say", "-v", "Evan", "beep"], capture_output=True, timeout=3)
+            pass
         time.sleep(0.5)
 
 
@@ -682,13 +699,10 @@ def main():
                 send_telegram_preview(png_path, caption)
             else:
                 print("  ⚠  PNG not generated — sending text only")
-                subprocess.run(
-                    ["openclaw", "message", "send",
-                     "--channel", "telegram",
-                     "--target", TELEGRAM_CHAT_ID,
-                     "--message", caption],
-                    capture_output=True,
-                )
+                _openclaw("message", "send",
+                          "--channel", "telegram",
+                          "--target", TELEGRAM_CHAT_ID,
+                          "--message", caption)
 
             # Save pending state (type=sketch, no image_path)
             state = {"type": "sketch", "svg_path": svg_path, "prompt": prompt}
@@ -710,13 +724,10 @@ def main():
             msg = "Nothing pending to cancel."
             log("CANCEL", "no pending state")
         print(f"  {msg}")
-        subprocess.run(
-            ["openclaw", "message", "send",
-             "--channel", "telegram",
-             "--target", TELEGRAM_CHAT_ID,
-             "--message", msg],
-            capture_output=True,
-        )
+        _openclaw("message", "send",
+                  "--channel", "telegram",
+                  "--target", TELEGRAM_CHAT_ID,
+                  "--message", msg)
         sys.exit(0)
 
     # ── IMAGE PREVIEW (no arm needed) ─────────────────────────────────────────
@@ -803,10 +814,10 @@ def main():
         msg = f"⚠️ Robot Ross is already drawing ({lock_info}). Please wait until it finishes."
         print(msg)
         log("BUSY", lock_info)
-        subprocess.run(["openclaw", "message", "send",
-                        "--channel", "telegram",
-                        "--target", TELEGRAM_CHAT_ID,
-                        "--message", msg], capture_output=True)
+        _openclaw("message", "send",
+                  "--channel", "telegram",
+                  "--target", TELEGRAM_CHAT_ID,
+                  "--message", msg)
         sys.exit(1)
 
     lock_detail = f"action={args.action} content={args.content!r}"
@@ -836,8 +847,12 @@ def main():
         log("OBS", f"not available — {e}")
 
     # ── PREVENT SLEEP ─────────────────────────────────────────────────────────
-    _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])  # -d=display, -i=system
-    log("CAFFEINATE", f"started (pid {_caffeinate.pid}) — Mac will not sleep during draw")
+    _caffeinate = None
+    if platform.system() == "Darwin":
+        _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])
+        log("CAFFEINATE", f"started (pid {_caffeinate.pid}) — Mac will not sleep during draw")
+    else:
+        log("CAFFEINATE", "skipped (Windows — manage sleep settings manually)")
 
     # ── GENERATE NARRATION ────────────────────────────────────────────────────
     if not args.no_voice:
@@ -980,7 +995,8 @@ def main():
 
     # ── RELEASE SLEEP PREVENTION ──────────────────────────────────────────────
     try:
-        _caffeinate.terminate()
+        if _caffeinate:
+            _caffeinate.terminate()
     except Exception:
         pass
 
