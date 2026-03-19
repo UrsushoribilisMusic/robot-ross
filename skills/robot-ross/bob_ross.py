@@ -420,7 +420,6 @@ def generate_narration(action, content, buyer=None):
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
-        "format": "json",
     }).encode()
 
     try:
@@ -430,12 +429,16 @@ def generate_narration(action, content, buyer=None):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             result = json.loads(resp.read())
-            narration = json.loads(result["response"])
-            # Validate expected keys
-            if all(k in narration for k in ("intro", "commentary", "outro")):
-                return narration
+            raw = result.get("response", "")
+            # Extract JSON object from response (model may wrap it in markdown)
+            import re as _re
+            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if m:
+                narration = json.loads(m.group())
+                if all(k in narration for k in ("intro", "commentary", "outro")):
+                    return narration
             print("  ⚠  Apertus response missing expected keys, using fallback")
     except Exception as e:
         print(f"  ⚠  Ollama error: {e} — using fallback narration")
