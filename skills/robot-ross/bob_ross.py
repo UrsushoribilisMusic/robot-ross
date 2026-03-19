@@ -632,6 +632,7 @@ def main():
     )
     parser.add_argument("--size",   type=float, help="Size in mm (letter height or shape size)")
     parser.add_argument("--no-voice", action="store_true", help="Skip all voice narration")
+    parser.add_argument("--no-obs",   action="store_true", help="Skip OBS recording (use on Windows / no camera)")
     parser.add_argument("--direct", action="store_true",
                         help="sketch: skip preview, draw immediately (for automated orders)")
     parser.add_argument("--buyer",  default=None,
@@ -837,14 +838,18 @@ def main():
     # ── OBS RECORDING ─────────────────────────────────────────────────────────
     _obs_recording = None
     _recording_start = None
-    try:
-        import obs_manager
-        obs_content = getattr(args, "_original_content", args.content)
-        obs_manager.start_show(buyer_name=args.buyer, prompt=obs_content, record_only=True)
-        _recording_start = time.time()
-        log("OBS", "recording started")
-    except Exception as e:
-        log("OBS", f"not available — {e}")
+    _skip_obs = args.no_obs or platform.system() == "Windows"
+    if _skip_obs:
+        log("OBS", "skipped (Windows / --no-obs)")
+    else:
+        try:
+            import obs_manager
+            obs_content = getattr(args, "_original_content", args.content)
+            obs_manager.start_show(buyer_name=args.buyer, prompt=obs_content, record_only=True)
+            _recording_start = time.time()
+            log("OBS", "recording started")
+        except Exception as e:
+            log("OBS", f"not available — {e}")
 
     # ── PREVENT SLEEP ─────────────────────────────────────────────────────────
     _caffeinate = None
@@ -928,9 +933,12 @@ def main():
     # ── OBS STOP + YOUTUBE SHORTS UPLOAD ─────────────────────────────────────
     video_path = None
     video_url = None
+    if _skip_obs:
+        log("OBS", "stop skipped (Windows / --no-obs)")
     try:
-        import obs_manager
-        video_path = obs_manager.stop_show()
+        if not _skip_obs:
+            import obs_manager
+            video_path = obs_manager.stop_show()
         if video_path:
             log("OBS", f"recording saved: {video_path}")
             # ── TRIM — cut everything before the last beep ─────────────────

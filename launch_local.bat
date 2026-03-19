@@ -18,8 +18,8 @@ echo.
 echo --- WRITE ---
 echo   python skills\huenit\huenit_write.py "Hello World"
 echo   python skills\huenit\huenit_write.py "Hello" --size 12
-echo   python skills\robot-ross\bob_ross.py write "Hello World"
-echo   python skills\robot-ross\bob_ross.py write "Hello World" --size 15 --no-voice
+echo   python skills\robot-ross\bob_ross.py write "Hello World" --no-obs
+echo   python skills\robot-ross\bob_ross.py write "Hello World" --size 15 --no-voice --no-obs
 echo.
 echo --- SHAPES ---
 echo   python skills\huenit\huenit_draw.py square
@@ -33,7 +33,7 @@ echo.
 echo --- SVG ---
 echo   python skills\huenit\huenit_svg.py mydesign.svg --size 80
 echo   python skills\huenit\huenit_svg.py mydesign.svg --dry-run
-echo   python skills\robot-ross\bob_ross.py svg mydesign.svg --size 80
+echo   python skills\robot-ross\bob_ross.py svg mydesign.svg --size 80 --no-obs
 echo.
 echo --- IMAGE TO DRAWING ---
 echo   python skills\huenit\image_to_svg.py photo.jpg --edges --auto
