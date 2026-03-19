@@ -157,23 +157,33 @@ def log(event, detail=""):
 
 # ── Telegram preview helpers ──────────────────────────────────────────────────
 def svg_to_png(svg_path, png_path):
-    """Render SVG to PNG using qlmanage (macOS built-in)."""
+    """Render SVG to PNG. Uses cairosvg (cross-platform) or qlmanage (macOS)."""
+    # Try cairosvg first (pip install cairosvg) — works on Windows/Mac/Linux
     try:
-        out_dir = os.path.dirname(png_path)
-        result = subprocess.run(
-            ["qlmanage", "-t", "-s", "1200", "-o", out_dir, svg_path],
-            capture_output=True, timeout=30,
-        )
-        # qlmanage saves as <filename>.svg.png
-        ql_out = svg_path + ".png"
-        if os.path.exists(ql_out):
-            os.rename(ql_out, png_path)
-            return True
-        print(f"  ⚠  qlmanage did not produce output")
-        return False
+        import cairosvg
+        cairosvg.svg2png(url=svg_path, write_to=png_path, output_width=1200)
+        return os.path.exists(png_path)
+    except ImportError:
+        pass
     except Exception as e:
-        print(f"  ⚠  svg_to_png failed: {e}")
-        return False
+        print(f"  ⚠  cairosvg failed: {e}")
+
+    # macOS fallback: qlmanage
+    if platform.system() == "Darwin":
+        try:
+            out_dir = os.path.dirname(png_path)
+            subprocess.run(
+                ["qlmanage", "-t", "-s", "1200", "-o", out_dir, svg_path],
+                capture_output=True, timeout=30,
+            )
+            ql_out = svg_path + ".png"
+            if os.path.exists(ql_out):
+                os.rename(ql_out, png_path)
+                return True
+        except Exception as e:
+            print(f"  ⚠  qlmanage failed: {e}")
+
+    return False
 
 
 def send_telegram_preview(png_path, caption):
@@ -696,7 +706,7 @@ def main():
             "--out", svg_path,
             "--png-out", png_path,
         ]
-        result = subprocess.run(compose_cmd, capture_output=True, text=True)
+        result = subprocess.run(compose_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         # Print live output so it's visible in terminal / poller log
         if result.stdout:
             print(result.stdout, end="")
