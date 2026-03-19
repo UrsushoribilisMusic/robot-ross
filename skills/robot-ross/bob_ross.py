@@ -533,10 +533,12 @@ def run_draw(action, content, size=None):
         if capped:
             cmd.append(str(capped))
     elif action == "svg":
-        # Resolve bare filename → ~/Downloads/filename
+        # Resolve bare filename: try cwd → ~/Downloads
         svg_path = content
-        if not os.path.dirname(svg_path):
-            svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
+        if not os.path.isabs(svg_path) and not os.path.exists(svg_path):
+            dl = os.path.expanduser(os.path.join("~/Downloads", os.path.basename(svg_path)))
+            if os.path.exists(dl):
+                svg_path = dl
         _add_drawing_markers(svg_path)
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
