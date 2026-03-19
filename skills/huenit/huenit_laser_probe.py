@@ -112,16 +112,70 @@ def brute_force(ser, start, end):
     print("If you saw the laser fire, note that M-code and report it.")
 
 
+def focused_probe(ser):
+    """
+    Targeted probe for the 5 accepted commands (M1400-M1404).
+    Tries M1401 with every plausible parameter format.
+    Tries M1403 with explicit P/U/C/K values (looks like laser config).
+    Each candidate fires for BURN_SECONDS — watch for laser beam.
+    """
+    print("=" * 55)
+    print("Focused probe — M1401 formats + M1403 with power params")
+    print(f"Each fires for {BURN_SECONDS}s. Watch for laser beam.")
+    print("=" * 55)
+    print()
+
+    candidates = [
+        # M1401 with every plausible power parameter format
+        ("M1401 A1023",     "M1401 A0"),
+        ("M1401 A512",      "M1401 A0"),
+        ("M1401 P1023",     "M1401 P0"),
+        ("M1401 P255",      "M1401 P0"),
+        ("M1401 L1023",     "M1401 L0"),
+        ("M1401 V1023",     "M1401 V0"),
+        ("M1401",           "M1401"),       # bare command — toggle?
+        # M1403 with explicit params (P=power U=? C=? K=?)
+        ("M1403 P1023",     "M1403 P0"),
+        ("M1403 P255",      "M1403 P0"),
+        ("M1403 P1023 U5 C120 K10",  "M1403 P0 U5 C120 K10"),
+        ("M1403 P512 U5 C120 K10",   "M1403 P0 U5 C120 K10"),
+        # M1404 — try with power param
+        ("M1404 A1023",     "M1404 A0"),
+        ("M1404 P1023",     "M1404 P0"),
+        # M1400 with different params (suction confirmed, but maybe laser is on same cmd?)
+        ("M1400 A1023",     "M1400 A0"),
+    ]
+
+    for on_cmd, off_cmd in candidates:
+        r_on = send(ser, on_cmd, wait=0.5)
+        is_unknown = "Unknown" in r_on or "unknown" in r_on
+        status = "UNKNOWN" if is_unknown else "OK <<<< CHECK LASER"
+        print(f"  {on_cmd:35s}  →  {status}")
+        if r_on and not is_unknown:
+            for line in r_on.splitlines():
+                if line.strip():
+                    print(f"                   reply: {line}")
+        if not is_unknown:
+            time.sleep(BURN_SECONDS)
+        send(ser, off_cmd, wait=0.3)
+        time.sleep(0.2)
+
+    print()
+    print("Done. Report which line showed laser activity.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Huenit laser probe — find the laser M-code"
     )
-    parser.add_argument("--fire",  action="store_true",
-                        help="Run brute-force laser command search")
+    parser.add_argument("--fire",    action="store_true",
+                        help="Run brute-force laser command search (M1400-M1420)")
+    parser.add_argument("--focused", action="store_true",
+                        help="Run focused probe on M1401/M1403 with many param formats")
     parser.add_argument("--start", type=int, default=1400,
-                        help="First M-code to try (default 1400)")
+                        help="First M-code to try with --fire (default 1400)")
     parser.add_argument("--end",   type=int, default=1420,
-                        help="Last M-code to try (default 1420)")
+                        help="Last M-code to try with --fire (default 1420)")
     args = parser.parse_args()
 
     print(f"\nConnecting to {PORT} at {BAUD} baud...")
@@ -130,10 +184,10 @@ def main():
 
     firmware_info(ser)
 
-    if not args.fire:
-        print("Run with --fire to brute-force laser commands.")
-        print(f"  python skills\\huenit\\huenit_laser_probe.py --fire")
-        print(f"  python skills\\huenit\\huenit_laser_probe.py --fire --start 1400 --end 1430")
+    if not args.fire and not args.focused:
+        print("Options:")
+        print("  --fire     brute-force M1400-M1420 (already done)")
+        print("  --focused  targeted probe of M1401/M1403 with many param formats")
         ser.close()
         return
 
@@ -147,7 +201,10 @@ def main():
         return
 
     print()
-    brute_force(ser, args.start, args.end)
+    if args.focused:
+        focused_probe(ser)
+    else:
+        brute_force(ser, args.start, args.end)
     ser.close()
 
 
