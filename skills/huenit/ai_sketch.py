@@ -38,15 +38,22 @@ STRICT rules:
 
 
 def _load_api_key() -> str:
-    if not os.path.exists(CREDENTIALS_FILE):
-        raise FileNotFoundError(f"Anthropic credentials not found: {CREDENTIALS_FILE}")
-    with open(CREDENTIALS_FILE) as f:
-        data = json.load(f)
-    profile = data.get("anthropic:default") or next(iter(data.values()))
-    key = profile.get("apiKey") or profile.get("key")
-    if not key:
-        raise ValueError("No API key found in credentials file")
-    return key
+    # 1. Standard env var (works everywhere, no file needed)
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key:
+        return key
+    # 2. OpenClaw credentials file (Mac / cloud setup)
+    if os.path.exists(CREDENTIALS_FILE):
+        with open(CREDENTIALS_FILE) as f:
+            data = json.load(f)
+        profile = data.get("anthropic:default") or next(iter(data.values()))
+        key = profile.get("apiKey") or profile.get("key")
+        if key:
+            return key
+    raise FileNotFoundError(
+        "Anthropic API key not found. Set the ANTHROPIC_API_KEY environment variable:\n"
+        "  set ANTHROPIC_API_KEY=sk-ant-..."
+    )
 
 
 def generate_svg(prompt: str) -> tuple:
