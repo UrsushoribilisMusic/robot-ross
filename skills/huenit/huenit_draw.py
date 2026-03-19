@@ -16,6 +16,10 @@ Calibrate first to find your Z_DOWN (pen touches paper) and Z_UP (pen lifted).
 
 import sys, os, time, re, math, threading, json, tempfile
 import serial
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PORT = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")

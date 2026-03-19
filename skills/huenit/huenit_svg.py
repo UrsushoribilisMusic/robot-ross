@@ -19,6 +19,10 @@ Requires prior calibration: python3 huenit_draw.py calibrate
 
 import sys, os, re, math, time, threading, argparse, json, tempfile
 import xml.etree.ElementTree as ET
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import serial
 
 # ── Config ────────────────────────────────────────────────────────────────────

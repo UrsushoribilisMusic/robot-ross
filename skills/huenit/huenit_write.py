@@ -17,6 +17,10 @@ Options:
 
 import sys, os, time, re, math, threading, json, argparse, subprocess, tempfile
 import serial
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PORT = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")

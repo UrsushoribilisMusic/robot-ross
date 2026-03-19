@@ -19,6 +19,12 @@ import subprocess
 import sys
 import urllib.request
 
+# Windows consoles default to cp1252 which can't encode emoji
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 CREDENTIALS_FILE = os.path.expanduser("~/.openclaw/credentials/anthropic.json")
 
 SYSTEM_PROMPT = """\
