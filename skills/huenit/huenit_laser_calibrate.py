@@ -157,7 +157,11 @@ def cmd_focus(args):
 
 
 def cmd_pointer(args):
-    """Fire laser at very low power (no movement) — lets you see where the beam points."""
+    """Fire laser at low power (no movement) — lets you see where the beam points.
+
+    NOTE: Uses $32=0 (spindle mode) so M3 fires while stationary.
+    In laser mode ($32=1) the laser only fires during G1 moves — useless for pointing.
+    """
     print(f"\nLaser pointer mode — power {args.power}/1000, press Ctrl+C to stop.")
     if not args.dry_run:
         print("\n  SAFETY: The laser WILL fire. Wear goggles. Do not look at beam.")
@@ -167,14 +171,14 @@ def cmd_pointer(args):
             return
 
     ser = open_port(PORT)
-    send_cmd(ser, "$32=1", verbose=False)   # laser mode
+    send_cmd(ser, "$32=0", verbose=False)   # spindle mode — fires while stationary
     send_cmd(ser, "G21")
     send_cmd(ser, "G90")
     send_cmd(ser, f"G1 Z{args.focus:.2f} F300")
     send_cmd(ser, "M400")
 
     if args.dry_run:
-        print("  [DRY RUN] Would fire M3 S{args.power} now.")
+        print(f"  [DRY RUN] Would fire M3 S{args.power} now.")
     else:
         send_cmd(ser, f"M3 S{args.power}")
         print(f"\n  Laser ON at power {args.power}. Press Ctrl+C to turn off.")
@@ -185,7 +189,6 @@ def cmd_pointer(args):
             pass
 
     send_cmd(ser, "M5")
-    send_cmd(ser, "$32=0")
     print("\n  Laser OFF.")
     ser.close()
 
@@ -201,7 +204,7 @@ def cmd_dot(args):
             return
 
     ser = open_port(PORT)
-    send_cmd(ser, "$32=1", verbose=False)
+    send_cmd(ser, "$32=0", verbose=False)   # spindle mode — fires while stationary
     send_cmd(ser, "G21")
     send_cmd(ser, "G90")
     send_cmd(ser, f"G1 Z{args.focus:.2f} F300")
@@ -214,7 +217,6 @@ def cmd_dot(args):
         time.sleep(args.duration)
         send_cmd(ser, "M5")
 
-    send_cmd(ser, "$32=0")
     print(f"\n  Done. Check dot burn depth — adjust --power and --duration as needed.")
     ser.close()
 
