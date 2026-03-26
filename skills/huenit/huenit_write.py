@@ -27,6 +27,8 @@ PORT = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")
 BAUD = 115200
 DEFAULT_DRAW_FEED = 400
 TRAVEL_FEED = 800
+PYRO_FEED    = 60    # mm/min for pyrography
+PYRO_TRAVEL  = 300   # mm/min travel between burns
 Z_UP = 3.0  # default, overridden by calibration
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -400,7 +402,8 @@ def main():
     parser.add_argument("--size", type=float, default=10.0, help="Letter height in mm (default 10)")
     parser.add_argument("--spacing", type=float, default=2.0, help="Space between letters in mm (default 2)")
     parser.add_argument("--sound", type=str, default=None, help="MP3 to play before drawing")
-    parser.add_argument("--feed", type=float, default=DEFAULT_DRAW_FEED, help="Draw feed rate mm/min (default 400)")
+    parser.add_argument("--feed", type=float, default=None, help="Draw feed rate mm/min (default 400, or 60 with --pyro)")
+    parser.add_argument("--pyro", action="store_true", help="Pyrography mode: slow feed rate for wood burning")
     parser.add_argument("--line-spacing", type=float, default=1.5, help="Line height multiplier (default 1.5x letter height)")
     parser.add_argument("--paper-width", type=float, default=180.0,
                         help="Usable paper width in mm — font auto-scales to fit (default 180)")
@@ -409,6 +412,14 @@ def main():
     parser.add_argument("--min-size", type=float, default=5.0,
                         help="Minimum font size in mm — wrap to more lines rather than go smaller (default 5)")
     args = parser.parse_args()
+
+    if args.pyro:
+        draw_feed = args.feed or PYRO_FEED
+        global TRAVEL_FEED
+        TRAVEL_FEED = PYRO_TRAVEL
+        print(f"  🔥 Pyrography mode: feed={draw_feed}mm/min, travel={PYRO_TRAVEL}mm/min")
+    else:
+        draw_feed = args.feed or DEFAULT_DRAW_FEED
 
     check_ready()
 
@@ -488,7 +499,7 @@ def main():
             g.send(f"G1 X{-offset:.3f} F{TRAVEL_FEED}", wait_ok=True)
             g.wait_motion()
 
-            pen = Pen(g, Z_UP, args.feed)
+            pen = Pen(g, Z_UP, draw_feed)
             pen.is_up = True
 
             print(f"  ✍ {line_label}: {line}")

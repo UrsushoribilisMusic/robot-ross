@@ -37,7 +37,7 @@ MIN_STEP_MM              = 0.002       # send only if per-axis exceeds this
 IDLE_SYNC_AFTER_S        = 0.6         # issue M400 if idle this long (prevents backlog)
 
 # Encoder poller (HUD only; control never blocks)
-HUD_POSE_HZ              = 2.0         # 0..5 Hz recommended
+HUD_POSE_HZ              = 0           # disabled — M1008 races with main thread on Windows
 ENC_TIMEOUT_MS           = 120         # short timeout for HUD polling
 
 # Residual accumulators to avoid quantization loss
@@ -197,7 +197,8 @@ ENC_PAT = re.compile(
 
 class GCodeIO:
     def __init__(self, port, baud):
-        self.ser = serial.Serial(port, baud)
+        self.ser = serial.Serial(port, baud, timeout=0.05, write_timeout=5)
+        time.sleep(2.0)  # wait for arm to finish initialising after port open
         self.buf = bytearray()
         self.lock = threading.Lock()
         self.rx = threading.Thread(target=self._rx_loop, daemon=True); self.rx.start()
@@ -292,7 +293,7 @@ def clamp(v, lo, hi): return lo if v < lo else hi if v > hi else v
 
 def main():
     println_cr(f"HUENIT Jog Control (HUD) — Port: {PORT} @ {BAUD}")
-    println_cr("Keys: ←/→=X  ↑/↓=Y  W/S=Z+/-  A=VacON  D=VacOFF  +/- speed  Q/ESC quit")
+    println_cr("Keys: ←/→=X  ↑/↓=Y  W/S=Z+/-  [/]=Z fine(-0.1/+0.1mm)  A=VacON  D=VacOFF  +/- speed  Q/ESC quit")
 
     try:
         g = GCodeIO(PORT, BAUD)
@@ -340,6 +341,12 @@ def main():
                             g.send(VAC_OFF_CMD, wait_ok=True)
                             if VAC_SETTLE_MS>0: g.send(f"G4 P{VAC_SETTLE_MS}", wait_ok=True)
                             vac_on = False
+                    elif kl == '[':
+                        g.send("G1 Z-0.05 F50", wait_ok=True)
+                        println_cr("  > Z -0.05mm (fine)")
+                    elif kl == ']':
+                        g.send("G1 Z0.05 F50", wait_ok=True)
+                        println_cr("  > Z +0.05mm (fine)")
                     elif kl in ('+', '='):
                         jog_target = clamp(jog_target * 1.15, 1.0, 200.0)
                     elif kl == '-':
@@ -385,23 +392,15 @@ def main():
                     _residual['Z'] = dz
 
                 if cmd_parts:
-                    g.send("G1 " + " ".join(cmd_parts) + f" F{FEED_MM_MIN:.1f}", wait_ok=False)
+                    cmd = "G1 " + " ".join(cmd_parts) + f" F{FEED_MM_MIN:.1f}"
+                    g.send(cmd, wait_ok=False)
+                    println_cr(f"  > {cmd}  speed:{jog_target:.1f}mm/s  vac:{'ON' if vac_on else 'OFF'}")
                     t_last_idle = now
                 else:
                     # idle; flush planner after idle timeout
                     if (now - t_last_idle) >= IDLE_SYNC_AFTER_S:
                         g.send("M400", wait_ok=True, timeout=2.0)
                         t_last_idle = now
-
-                # HUD line
-                pose = poller.get_pose()
-                if pose:
-                    pos_txt = f"X:{pose['X']:+07.2f} Y:{pose['Y']:+07.2f} Z:{pose['Z']:+07.2f}"
-                else:
-                    pos_txt = "X:  ----  Y:  ----  Z:  ----"
-                v_txt = f"v=({vx:+05.1f},{vy:+05.1f},{vz:+05.1f}) mm/s"
-                keys_txt = f"held: x={held['x']} y={held['y']} z={held['z']}"
-                hud_write(f"[HUENIT JOG] {pos_txt}  {v_txt}  speed:{jog_target:05.1f}  vac:{'ON' if vac_on else 'OFF'}  {keys_txt}")
 
         finally:
             try:
