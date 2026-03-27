@@ -558,7 +558,7 @@ def _add_drawing_markers(svg_path: str) -> None:
 
 
 # ── Drawing ───────────────────────────────────────────────────────────────────
-def run_draw(action, content, size=None):
+def run_draw(action, content, size=None, pyro=False, feed=None):
     """
     Launch the appropriate huenit script as a subprocess.
     Monitors stop_flag and terminates + lifts pen if set.
@@ -582,6 +582,10 @@ def run_draw(action, content, size=None):
                "--paper-width", str(MAX_DRAW_SIZE)]
         if size:
             cmd += ["--size", str(size)]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "draw":
         capped = size
         if size and size > MAX_DRAW_SIZE:
@@ -591,7 +595,6 @@ def run_draw(action, content, size=None):
         if capped:
             cmd.append(str(capped))
     elif action == "svg":
-        # Resolve bare filename: try cwd → ~/Downloads
         svg_path = content
         if not os.path.isabs(svg_path) and not os.path.exists(svg_path):
             dl = os.path.expanduser(os.path.join("~/Downloads", os.path.basename(svg_path)))
@@ -600,8 +603,11 @@ def run_draw(action, content, size=None):
         _add_drawing_markers(svg_path)
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "fetch":
-        # Download SVG from URL, validate, then draw raw
         svg_path = os.path.join(_TMP, "robot_ross_fetched.svg")
         fetch_cmd = [
             py, os.path.join(HUENIT_DIR, "huenit_sketch.py"),
@@ -617,8 +623,11 @@ def run_draw(action, content, size=None):
         _add_drawing_markers(svg_path)
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "image":
-        # Convert image → SVG, then draw
         img_path = os.path.expanduser(content)
         svg_path = os.path.splitext(img_path)[0] + "_traced.svg"
         print(f"  🖼  Converting image to SVG: {img_path}")
@@ -634,6 +643,10 @@ def run_draw(action, content, size=None):
         print(f"  ✅ SVG ready: {svg_path}")
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     else:
         print(f"  ⚠  Unknown action: {action}")
         return False
@@ -712,6 +725,10 @@ def main():
                         help="sketch: skip preview, draw immediately (for automated orders)")
     parser.add_argument("--buyer",  default=None,
                         help="Buyer name for personalised narration (e.g. from Shopify order)")
+    parser.add_argument("--pyro", action="store_true",
+                        help="Pyrography mode: slow feed rate for wood burning")
+    parser.add_argument("--feed", type=float, default=None,
+                        help="Override feed rate mm/min (e.g. 45 for slower pyro)")
     args = parser.parse_args()
 
     signal.signal(signal.SIGINT, handle_stop)
@@ -982,7 +999,7 @@ def main():
         )
         t.start()
 
-    success = run_draw(args.action, args.content, args.size)
+    success = run_draw(args.action, args.content, args.size, pyro=args.pyro, feed=args.feed)
     draw_done.set()
     elapsed = round(time.time() - draw_start, 1)
 
