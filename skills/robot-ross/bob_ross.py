@@ -493,17 +493,35 @@ def run_commentary(phrases, draw_done):
 
 
 # ── Drawing markers (crop corners + signature) ────────────────────────────────
-_DRAWING_MARKERS = """\
+def _make_markers(vw, vh):
+    """Generate corner marks and R.R signature scaled to the SVG viewBox (vw×vh)."""
+    arm = min(vw, vh) * 0.05   # corner arm length = 5% of shortest side
+    sw  = min(vw, vh) * 0.004  # stroke-width
+    m   = min(vw, vh) * 0.008  # margin from edge
+
+    # top-right corner
+    tr_x, tr_y = vw - m, m
+    # bottom-left corner
+    bl_x, bl_y = m, vh - m
+
+    # R.R signature: bottom-right, letters ~4% tall
+    lh  = vh * 0.04   # letter height
+    lw  = lh * 0.5    # letter width
+    sig_x = vw - m - lw * 3
+    sig_y = vh - m
+
+    lines = f"""\
   <!-- Crop corner marks -->
-  <line x1="118" y1="1"   x2="124" y2="1"   stroke="black" fill="none" stroke-width="0.5"/>
-  <line x1="124" y1="1"   x2="124" y2="7"   stroke="black" fill="none" stroke-width="0.5"/>
-  <line x1="1"   y1="118" x2="1"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
-  <line x1="1"   y1="124" x2="7"   y2="124" stroke="black" fill="none" stroke-width="0.5"/>
-  <!-- Signature: R.R (stick letters, bottom-right) -->
-  <path d="M100,116 L100,110 L103,110 L104,111 L104,112 L103,113 L100,113 M103,113 L104,116" stroke="black" fill="none" stroke-width="0.5"/>
-  <path d="M105,115 L105,116" stroke="black" fill="none" stroke-width="0.5"/>
-  <path d="M106,116 L106,110 L109,110 L110,111 L110,112 L109,113 L106,113 M109,113 L110,116" stroke="black" fill="none" stroke-width="0.5"/>
+  <line x1="{tr_x - arm:.2f}" y1="{tr_y:.2f}" x2="{tr_x:.2f}" y2="{tr_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <line x1="{tr_x:.2f}" y1="{tr_y:.2f}" x2="{tr_x:.2f}" y2="{tr_y + arm:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <line x1="{bl_x:.2f}" y1="{bl_y - arm:.2f}" x2="{bl_x:.2f}" y2="{bl_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <line x1="{bl_x:.2f}" y1="{bl_y:.2f}" x2="{bl_x + arm:.2f}" y2="{bl_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <!-- Signature: R.R -->
+  <path d="M{sig_x:.2f},{sig_y:.2f} L{sig_x:.2f},{sig_y - lh:.2f} L{sig_x + lw * 0.6:.2f},{sig_y - lh:.2f} L{sig_x + lw:.2f},{sig_y - lh * 0.83:.2f} L{sig_x + lw:.2f},{sig_y - lh * 0.67:.2f} L{sig_x + lw * 0.6:.2f},{sig_y - lh * 0.5:.2f} L{sig_x:.2f},{sig_y - lh * 0.5:.2f} M{sig_x + lw * 0.6:.2f},{sig_y - lh * 0.5:.2f} L{sig_x + lw:.2f},{sig_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <path d="M{sig_x + lw * 1.1:.2f},{sig_y - lh * 0.1:.2f} L{sig_x + lw * 1.1:.2f},{sig_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
+  <path d="M{sig_x + lw * 1.2:.2f},{sig_y:.2f} L{sig_x + lw * 1.2:.2f},{sig_y - lh:.2f} L{sig_x + lw * 1.8:.2f},{sig_y - lh:.2f} L{sig_x + lw * 2.2:.2f},{sig_y - lh * 0.83:.2f} L{sig_x + lw * 2.2:.2f},{sig_y - lh * 0.67:.2f} L{sig_x + lw * 1.8:.2f},{sig_y - lh * 0.5:.2f} L{sig_x + lw * 1.2:.2f},{sig_y - lh * 0.5:.2f} M{sig_x + lw * 1.8:.2f},{sig_y - lh * 0.5:.2f} L{sig_x + lw * 2.2:.2f},{sig_y:.2f}" stroke="black" fill="none" stroke-width="{sw:.3f}"/>
 """
+    return lines
 
 
 def _add_drawing_markers(svg_path: str) -> None:
@@ -511,10 +529,30 @@ def _add_drawing_markers(svg_path: str) -> None:
     try:
         with open(svg_path) as f:
             svg = f.read()
-        svg = svg.replace("</svg>", _DRAWING_MARKERS + "</svg>")
+
+        # Parse viewBox to get coordinate dimensions
+        import re as _re
+        vb = _re.search(r'viewBox=["\']([^"\']+)["\']', svg)
+        if vb:
+            parts = vb.group(1).split()
+            vw, vh = float(parts[2]), float(parts[3])
+        else:
+            # Fall back to width/height attributes
+            w = _re.search(r'\bwidth=["\']([0-9.]+)', svg)
+            h = _re.search(r'\bheight=["\']([0-9.]+)', svg)
+            vw = float(w.group(1)) if w else 500.0
+            vh = float(h.group(1)) if h else 500.0
+
+        # Strip any previously injected markers before re-adding
+        import re as _re2
+        svg = _re2.sub(r'<!--\s*Crop corner marks\s*-->[\s\S]*?(?=</svg>)', '', svg)
+        svg = _re2.sub(r'<!--\s*Signature[^>]*-->[\s\S]*?(?=</svg>)', '', svg)
+
+        markers = _make_markers(vw, vh)
+        svg = svg.replace("</svg>", markers + "</svg>")
         with open(svg_path, "w") as f:
             f.write(svg)
-        log("MARKERS", "corner marks + signature added")
+        log("MARKERS", f"corner marks + signature added (viewBox {vw:.0f}×{vh:.0f})")
     except Exception as e:
         log("MARKERS ERROR", f"could not add markers: {e}")
 
