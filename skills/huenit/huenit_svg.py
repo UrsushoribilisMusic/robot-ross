@@ -30,6 +30,11 @@ PORT          = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")
 BAUD          = 115200
 TRAVEL_FEED   = 800
 DEFAULT_FEED  = 250    # slower than text for detail
+PYRO_FEED     = 60     # mm/min for pyrography
+PYRO_TRAVEL   = 300    # mm/min travel between burns
+PYRO_Z_FEED   = 60     # mm/min for pen-down Z drop (slow — prevents overshoot into wood)
+PYRO_Z_UP     = 10.0   # mm lift height for pyrography (higher than pen)
+PYRO_Z_HOVER  = 0.0    # mm above surface — 0 = tip touches surface as calibrated
 DEFAULT_SIZE  = 80.0   # mm, max dimension
 CURVE_STEPS   = 20     # line segments per bezier curve
 CIRCLE_STEPS  = 48     # line segments per full circle/ellipse
@@ -39,7 +44,8 @@ CALIBRATION_FILE = os.path.join(SCRIPT_DIR, "calibration.json")
 READY_FLAG       = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
 
 Z_UP        = 6.0
-TILT_SLOPE  = 0.0     # mm of Z correction per mm of Y travel (loaded from calibration)
+TILT_SLOPE   = 0.0    # mm of Z correction per mm of Y travel (loaded from calibration)
+TILT_SLOPE_X = 0.0    # mm of Z correction per mm of X travel (loaded from calibration)
 
 OK_PAT = re.compile(rb"\bok\b", re.I)
 
@@ -434,7 +440,7 @@ def _log(msg):
 
 
 # ── Draw ──────────────────────────────────────────────────────────────────────
-def draw_segments(g, segments, z_up, draw_feed):
+def draw_segments(g, segments, z_up, draw_feed, z_hover=0.0, z_feed=None):
     """Execute segments as G-code. Pen starts and ends UP at (0,0)."""
     is_up  = True
     cur_x  = 0.0
@@ -444,6 +450,9 @@ def draw_segments(g, segments, z_up, draw_feed):
     total  = sum(1 for k, _, _ in segments if k == 'line')
     path_n = 0
     LOG_EVERY = 50   # log a draw move every N lines
+    NOMINAL_STEP_MM = 0.5   # step size at which draw_feed is calibrated for pyro burn depth
+    MAX_FEED_SCALE  = 5.0   # cap adaptive feed at this multiple of draw_feed
+    _z_feed = z_feed if z_feed is not None else TRAVEL_FEED
 
     for kind, x, y in segments:
         dx = x - cur_x
@@ -451,11 +460,11 @@ def draw_segments(g, segments, z_up, draw_feed):
 
         if kind == 'move':
             if not is_up:
-                g.send(f"G1 Z{z_up:.2f} F{TRAVEL_FEED}", wait_ok=True)
+                g.send(f"G1 Z{z_up - z_hover:.2f} F{_z_feed}", wait_ok=True)
                 g.wait_motion()
                 is_up = True
             if abs(dx) > 0.01 or abs(dy) > 0.01:
-                dz = TILT_SLOPE * dy
+                dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
                 z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
                 g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
                 g.wait_motion()
@@ -465,32 +474,36 @@ def draw_segments(g, segments, z_up, draw_feed):
 
         elif kind == 'line':
             if is_up:
-                g.send(f"G1 Z{-z_up:.2f} F{TRAVEL_FEED}", wait_ok=True)
+                g.send(f"G1 Z{-(z_up - z_hover):.2f} F{_z_feed}", wait_ok=True)
                 g.wait_motion()
                 is_up = False
                 _log(f"PEN DOWN — drawing line {lines+1}/{total}")
             if abs(dx) > 0.01 or abs(dy) > 0.01:
-                dz = TILT_SLOPE * dy
+                dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
                 z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
-                g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{draw_feed}", wait_ok=True)
+                step_dist = math.sqrt(dx * dx + dy * dy)
+                scale = min(MAX_FEED_SCALE, max(1.0, NOMINAL_STEP_MM / step_dist))
+                adaptive_feed = draw_feed * scale
+                g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{adaptive_feed:.1f}", wait_ok=True)
                 g.wait_motion()
             lines += 1
             if lines % LOG_EVERY == 0:
                 pct = lines / total * 100 if total else 0
-                _log(f"DRAWING  — {lines}/{total} moves ({pct:.0f}%) — X:{x:+.1f} Y:{y:+.1f}mm")
+                cur_z = TILT_SLOPE * cur_y + TILT_SLOPE_X * cur_x  # Z at surface level
+                _log(f"DRAWING  — {lines}/{total} ({pct:.0f}%) — X:{x:+.1f} Y:{y:+.1f} Z:{cur_z:+.3f}mm")
 
         cur_x, cur_y = x, y
 
     # Lift pen
     if not is_up:
-        g.send(f"G1 Z{z_up:.2f} F{TRAVEL_FEED}", wait_ok=True)
+        g.send(f"G1 Z{z_up - z_hover:.2f} F{_z_feed}", wait_ok=True)
         g.wait_motion()
 
     # Return to center (0, 0)
     dx = -cur_x
     dy = -cur_y
     if abs(dx) > 0.01 or abs(dy) > 0.01:
-        dz = TILT_SLOPE * dy
+        dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
         z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
         g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
         g.wait_motion()
@@ -504,9 +517,19 @@ def main():
     parser.add_argument("svg", help="Path to SVG file")
     parser.add_argument("--size", type=float, default=DEFAULT_SIZE,
                         help=f"Max dimension in mm (default {DEFAULT_SIZE})")
-    parser.add_argument("--feed", type=float, default=DEFAULT_FEED,
-                        help=f"Drawing feed rate mm/min (default {DEFAULT_FEED})")
+    parser.add_argument("--feed", type=float, default=None,
+                        help=f"Drawing feed rate mm/min (default {DEFAULT_FEED}, or {PYRO_FEED} with --pyro)")
+    parser.add_argument("--pyro", action="store_true",
+                        help="Pyrography mode: slow feed rate for wood burning")
     args = parser.parse_args()
+
+    global TRAVEL_FEED, Z_UP, TILT_SLOPE, TILT_SLOPE_X
+
+    if args.pyro:
+        feed = args.feed or PYRO_FEED
+        TRAVEL_FEED = PYRO_TRAVEL
+    else:
+        feed = args.feed or DEFAULT_FEED
 
     if not os.path.exists(args.svg):
         print(f"  ❌ SVG file not found: {args.svg}")
@@ -514,16 +537,18 @@ def main():
 
     check_ready()
 
-    global Z_UP, TILT_SLOPE
     if os.path.exists(CALIBRATION_FILE):
         with open(CALIBRATION_FILE) as f:
             cal = json.load(f)
-        Z_UP       = cal.get("z_up", Z_UP)
-        TILT_SLOPE = cal.get("tilt_slope", 0.0)
-        tilt_info  = f", tilt={TILT_SLOPE:.4f} mm/mm" if TILT_SLOPE != 0 else ""
-        print(f"  📐 Calibration: Z_UP = {Z_UP:.1f}mm{tilt_info}")
+        Z_UP         = cal.get("z_up", Z_UP)
+        TILT_SLOPE   = cal.get("tilt_slope", 0.0)
+        TILT_SLOPE_X = cal.get("tilt_slope_x", 0.0)
+        print(f"  📐 Calibration:")
+        print(f"       Z_UP   = {Z_UP:.1f} mm")
+        print(f"       Tilt Y = {TILT_SLOPE:+.5f} mm/mm  ({TILT_SLOPE*10:+.3f} mm per 10cm)")
+        print(f"       Tilt X = {TILT_SLOPE_X:+.5f} mm/mm  ({TILT_SLOPE_X*10:+.3f} mm per 10cm)")
 
-    print(f"HUENIT SVG — {os.path.basename(args.svg)} @ max {args.size}mm | Port: {PORT}")
+    print(f"HUENIT SVG — {os.path.basename(args.svg)} @ max {args.size}mm | feed={feed}mm/min | Port: {PORT}")
 
     segments = parse_svg(args.svg)
     if not segments:
@@ -536,8 +561,12 @@ def main():
     try:
         g.send("G21", wait_ok=True)
         g.send("G91", wait_ok=True)
-        draw_segments(g, segments, Z_UP, args.feed)
-        print("\n  ✅ Done! (pen is up — safe to remove paper)")
+        if args.pyro:
+            print(f"  🔥 Pyrography mode: feed={feed}mm/min, travel={TRAVEL_FEED}mm/min, z_up={Z_UP:.1f}mm (from calibration)")
+        draw_segments(g, segments, Z_UP, feed,
+                      z_hover=PYRO_Z_HOVER if args.pyro else 0.0,
+                      z_feed=PYRO_Z_FEED if args.pyro else None)
+        print("\n  ✅ Done! (tip is up — safe to remove wood)")
     finally:
         g.send("G90", wait_ok=True)
         g.close()

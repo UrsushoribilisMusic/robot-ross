@@ -27,12 +27,17 @@ PORT = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")
 BAUD = 115200
 DEFAULT_DRAW_FEED = 400
 TRAVEL_FEED = 800
+PYRO_FEED    = 60    # mm/min for pyrography
+PYRO_TRAVEL  = 300   # mm/min travel between burns
+PYRO_Z_FEED  = 60    # mm/min for pen-down Z drop (slow — prevents overshoot into wood)
+PYRO_Z_HOVER = 0.0   # mm above surface — 0 = tip touches surface as calibrated
 Z_UP = 3.0  # default, overridden by calibration
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(SCRIPT_DIR, "calibration.json")
 READY_FLAG = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
-TILT_SLOPE = 0.0      # mm of Z correction per mm of Y travel (loaded from calibration)
+TILT_SLOPE   = 0.0    # mm of Z correction per mm of Y travel (loaded from calibration)
+TILT_SLOPE_X = 0.0    # mm of Z correction per mm of X travel (loaded from calibration)
 
 OK_PAT = re.compile(rb"\bok\b", re.I)
 
@@ -262,23 +267,25 @@ class GCodeIO:
 
 # ── Drawing primitives ────────────────────────────────────────────────────────
 class Pen:
-    def __init__(self, g, z_up, draw_feed):
+    def __init__(self, g, z_up, draw_feed, z_hover=0.0, z_feed=None):
         self.g = g
         self.z_up = z_up
         self.draw_feed = draw_feed
+        self.z_hover = z_hover
+        self.z_feed = z_feed if z_feed is not None else TRAVEL_FEED
         self.is_up = False
         self.cursor_x = 0.0  # track relative position
         self.cursor_y = 0.0
 
     def up(self):
         if not self.is_up:
-            self.g.send(f"G1 Z{self.z_up:.2f} F{TRAVEL_FEED}", wait_ok=True)
+            self.g.send(f"G1 Z{self.z_up - self.z_hover:.2f} F{self.z_feed}", wait_ok=True)
             self.g.wait_motion()
             self.is_up = True
 
     def down(self):
         if self.is_up:
-            self.g.send(f"G1 Z{-self.z_up:.2f} F{TRAVEL_FEED}", wait_ok=True)
+            self.g.send(f"G1 Z{-(self.z_up - self.z_hover):.2f} F{self.z_feed}", wait_ok=True)
             self.g.wait_motion()
             self.is_up = False
 
@@ -287,7 +294,7 @@ class Pen:
         dx = x - self.cursor_x
         dy = y - self.cursor_y
         if abs(dx) > 0.01 or abs(dy) > 0.01:
-            dz = TILT_SLOPE * dy
+            dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
             z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
             self.g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
             self.g.wait_motion()
@@ -299,7 +306,7 @@ class Pen:
         dx = x - self.cursor_x
         dy = y - self.cursor_y
         if abs(dx) > 0.01 or abs(dy) > 0.01:
-            dz = TILT_SLOPE * dy
+            dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
             z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
             self.g.send(f"G1 X{dx:.3f} Y{dy:.3f}{z_comp} F{self.draw_feed}", wait_ok=True)
             self.g.wait_motion()
@@ -400,7 +407,8 @@ def main():
     parser.add_argument("--size", type=float, default=10.0, help="Letter height in mm (default 10)")
     parser.add_argument("--spacing", type=float, default=2.0, help="Space between letters in mm (default 2)")
     parser.add_argument("--sound", type=str, default=None, help="MP3 to play before drawing")
-    parser.add_argument("--feed", type=float, default=DEFAULT_DRAW_FEED, help="Draw feed rate mm/min (default 400)")
+    parser.add_argument("--feed", type=float, default=None, help="Draw feed rate mm/min (default 400, or 60 with --pyro)")
+    parser.add_argument("--pyro", action="store_true", help="Pyrography mode: slow feed rate for wood burning")
     parser.add_argument("--line-spacing", type=float, default=1.5, help="Line height multiplier (default 1.5x letter height)")
     parser.add_argument("--paper-width", type=float, default=180.0,
                         help="Usable paper width in mm — font auto-scales to fit (default 180)")
@@ -410,16 +418,25 @@ def main():
                         help="Minimum font size in mm — wrap to more lines rather than go smaller (default 5)")
     args = parser.parse_args()
 
+    if args.pyro:
+        draw_feed = args.feed or PYRO_FEED
+        global TRAVEL_FEED
+        TRAVEL_FEED = PYRO_TRAVEL
+        print(f"  🔥 Pyrography mode: feed={draw_feed}mm/min, travel={PYRO_TRAVEL}mm/min")
+    else:
+        draw_feed = args.feed or DEFAULT_DRAW_FEED
+
     check_ready()
 
     # Load calibration
-    global Z_UP, TILT_SLOPE
+    global Z_UP, TILT_SLOPE, TILT_SLOPE_X
     if os.path.exists(CALIBRATION_FILE):
         with open(CALIBRATION_FILE) as f:
             cal = json.load(f)
-        Z_UP       = cal.get("z_up", Z_UP)
-        TILT_SLOPE = cal.get("tilt_slope", 0.0)
-        tilt_info  = f", tilt={TILT_SLOPE:.4f} mm/mm" if TILT_SLOPE != 0 else ""
+        Z_UP         = cal.get("z_up", Z_UP)
+        TILT_SLOPE   = cal.get("tilt_slope", 0.0)
+        TILT_SLOPE_X = cal.get("tilt_slope_x", 0.0)
+        tilt_info    = f", tilt_y={TILT_SLOPE:.4f} tilt_x={TILT_SLOPE_X:.4f}" if TILT_SLOPE != 0 or TILT_SLOPE_X != 0 else ""
         print(f"  📐 Calibration: Z_UP = {Z_UP:.1f}mm{tilt_info}")
     else:
         print(f"  📐 No calibration — using Z_UP = {Z_UP:.1f}mm")
@@ -488,7 +505,9 @@ def main():
             g.send(f"G1 X{-offset:.3f} F{TRAVEL_FEED}", wait_ok=True)
             g.wait_motion()
 
-            pen = Pen(g, Z_UP, args.feed)
+            pen = Pen(g, Z_UP, draw_feed,
+                      z_hover=PYRO_Z_HOVER if args.pyro else 0.0,
+                      z_feed=PYRO_Z_FEED if args.pyro else None)
             pen.is_up = True
 
             print(f"  ✍ {line_label}: {line}")
@@ -500,7 +519,7 @@ def main():
 
             if i < len(lines) - 1:
                 dy = -(effective_size * args.line_spacing)
-                dz = TILT_SLOPE * dy
+                dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
                 z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
                 g.send(f"G1 Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
                 g.wait_motion()
@@ -509,7 +528,7 @@ def main():
         # Return to original Y position
         if total_y_moved > 0:
             dy = total_y_moved
-            dz = TILT_SLOPE * dy
+            dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
             z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
             g.send(f"G1 Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
             g.wait_motion()
