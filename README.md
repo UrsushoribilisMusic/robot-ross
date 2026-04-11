@@ -54,6 +54,9 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | Bob Ross narration via Apertus 8B | `robot-ross/bob_ross.py` | ✅ |
 | Telegram preview → approve/cancel | `robot-ross/bob_ross.py` | ✅ |
 | Job lock, caffeinate, SIGTERM stop | `robot-ross/bob_ross.py` | ✅ |
+| **Pyrography (wood burning)** | `huenit/huenit_svg.py` | ✅ |
+| **Voice Conversation (Whisper)** | `robot-ross/chat_ross.py` | ✅ |
+| **TTS Engines (Kokoro/Voxtral)** | `voice/speak.py` | ✅ |
 
 ### Phase 2 — Automated Studio (✅ Complete)
 

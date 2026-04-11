@@ -264,6 +264,7 @@ def preview_image(image_path, target_segments, max_px=800, blur=1.5):
 stop_flag = threading.Event()
 _draw_proc = None
 _draw_proc_lock = threading.Lock()
+_tts_engine = "kokoro"
 
 
 # ── Voice ─────────────────────────────────────────────────────────────────────
@@ -274,7 +275,7 @@ def speak(text):
     print(f"  🗣  {text}")
     try:
         subprocess.run(
-            [sys.executable, os.path.join(VOICE_DIR, "speak.py"), text],
+            [sys.executable, os.path.join(VOICE_DIR, "speak.py"), text, "--engine", _tts_engine],
             timeout=90,
         )
     except subprocess.TimeoutExpired:
@@ -352,6 +353,8 @@ def generate_narration(action, content, buyer=None):
     buyer_line = f" The customer's name is {buyer}. Address them warmly by name in the intro." if buyer else ""
     # Strip literal \n so it never reaches spoken text as "slash n"
     speakable = content.replace('\\n', ' ').replace('\n', ' ').strip()
+    pyro_feed = feed or (45 if pyro else None)
+
     if action == "write":
         text_lines = content.replace('\\n', '\n').split('\n')
         text_lines = [l for l in text_lines if l.strip()]
@@ -363,6 +366,8 @@ def generate_narration(action, content, buyer=None):
         action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
         action_desc = "draw a vector illustration"
+    elif action == "pyro":
+        action_desc = f"burn a wood pyrography of '{speakable}'"
     elif action == "fetch":
         action_desc = "draw a vector illustration fetched from the internet"
     else:
@@ -439,7 +444,7 @@ def run_commentary(phrases, draw_done):
 
 
 # ── Drawing ───────────────────────────────────────────────────────────────────
-def run_draw(action, content, size=None):
+def run_draw(action, content, size=None, pyro=False, feed=None):
     """
     Launch the appropriate huenit script as a subprocess.
     Monitors stop_flag and terminates + lifts pen if set.
@@ -458,11 +463,17 @@ def run_draw(action, content, size=None):
             log("SCALE", f"requested size {requested}mm capped to {MAX_DRAW_SIZE}mm")
         return MAX_DRAW_SIZE
 
+    pyro_feed = feed or (45 if pyro else None)
+
     if action == "write":
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_write.py"), content,
                "--paper-width", str(MAX_DRAW_SIZE)]
         if size:
             cmd += ["--size", str(size)]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "draw":
         capped = size
         if size and size > MAX_DRAW_SIZE:
@@ -478,6 +489,10 @@ def run_draw(action, content, size=None):
             svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "fetch":
         # Download SVG from URL, validate, then draw raw
         svg_path = "/tmp/robot_ross_fetched.svg"
@@ -494,6 +509,10 @@ def run_draw(action, content, size=None):
         print(f"  ✅ SVG ready: {svg_path}")
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     elif action == "image":
         # Convert image → SVG, then draw
         img_path = os.path.expanduser(content)
@@ -511,6 +530,10 @@ def run_draw(action, content, size=None):
         print(f"  ✅ SVG ready: {svg_path}")
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path,
                "--size", str(_svg_size(size))]
+        if pyro:
+            cmd.append("--pyro")
+        if feed:
+            cmd += ["--feed", str(feed)]
     else:
         print(f"  ⚠  Unknown action: {action}")
         return False
@@ -583,12 +606,19 @@ def main():
         help="Text to write, shape name, or path to SVG file",
     )
     parser.add_argument("--size",   type=float, help="Size in mm (letter height or shape size)")
+    parser.add_argument("--pyro",   action="store_true", help="Pyrography (wood burning) mode")
+    parser.add_argument("--feed",   type=float, default=None, help="Drawing feed rate mm/min")
+    parser.add_argument("--engine", default="kokoro", choices=["kokoro", "voxtral", "system"],
+                        help="TTS engine (default: kokoro)")
     parser.add_argument("--no-voice", action="store_true", help="Skip all voice narration")
     parser.add_argument("--direct", action="store_true",
                         help="sketch: skip preview, draw immediately (for automated orders)")
     parser.add_argument("--buyer",  default=None,
                         help="Buyer name for personalised narration (e.g. from Shopify order)")
     args = parser.parse_args()
+
+    global _tts_engine
+    _tts_engine = args.engine
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
@@ -800,7 +830,8 @@ def main():
     # ── GENERATE NARRATION ────────────────────────────────────────────────────
     if not args.no_voice:
         log("NARRATION", "requesting from Apertus")
-        narration = generate_narration(args.action, args.content, buyer=args.buyer)
+        narration_action = "pyro" if args.pyro else "pyro" if args.pyro else args.action
+        narration = generate_narration(narration_action, args.content, buyer=args.buyer)
         log("NARRATION", "ready" if narration.get("intro") else "using fallback")
     else:
         narration = {"intro": "", "commentary": [], "outro": ""}
@@ -840,7 +871,7 @@ def main():
         )
         t.start()
 
-    success = run_draw(args.action, args.content, args.size)
+    success = run_draw(args.action, args.content, args.size, pyro=args.pyro, feed=args.feed)
     draw_done.set()
     elapsed = round(time.time() - draw_start, 1)
 

@@ -44,6 +44,12 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 /usr/bin/python3 bob_ross.py image ~/.openclaw/media/inbound/photo.jpg
 ```
 
+### Pyrography (wood burning)
+```bash
+/usr/bin/python3 bob_ross.py write "Robot Ross" --pyro
+/usr/bin/python3 bob_ross.py svg pattern.svg --pyro --feed 45
+```
+
 ### Shapes
 ```bash
 /usr/bin/python3 bob_ross.py draw circle
@@ -61,6 +67,8 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 - `--direct` — sketch only: skips Telegram preview, draws immediately
 - `--no-voice` — silent draw (no narration)
 - `--size N` — override size in mm
+- `--feed N` — override feed rate in mm/min (e.g. 60 for pyro, 400 for pen)
+- `--pyro` — pyrography mode: slow feed for wood burning
 
 ## Job lifecycle (automatic)
 1. Readiness check (arm + calibration + Ollama)

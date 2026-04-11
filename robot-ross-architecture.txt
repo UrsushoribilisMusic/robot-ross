@@ -17,18 +17,18 @@
          │  "draw Im a movie star"        ┌─────────────────────────────┐
          │  [sends photo]                 │   SALESMAN  (Cloud VPS)     │
          │                                │                             │
-         │                                │   OpenClaw instance         │
-         │                                │   Brain: Claude Haiku 4.5   │
+   🎤 VOICE SHOWCASE                      │   OpenClaw instance         │
+   (Whisper STT)                          │   Brain: Claude Haiku 4.5   │
          │                                │   (Anthropic API)           │
-         │                                │                             │
-         │                                │   Parses Shopify payload →  │
-         │                                │   ORDER #1042 |             │
-         │                                │   buyer: Alice |            │
-         │                                │   type: sketch |            │
-         │                                │   content: a lighthouse     │
-         │                                └────────────┬────────────────┘
-         │                                             │
-         │                                     Tailscale tunnel
+         ▼                                │                             │
+   ┌────────────────────┐                 │   Parses Shopify payload →  │
+   │  chat_ross.py      │                 │   ORDER #1042 |             │
+   │  (Interactive)     │                 │   buyer: Alice |            │
+   └─────────┬──────────┘                 │   type: sketch |            │
+             │                            │   content: a lighthouse     │
+             │                            └────────────┬────────────────┘
+             │                                         │
+             │                                 Tailscale tunnel
          │                                     auth: token
          │                                     (secure, outbound-only)
          │                                             │
@@ -85,6 +85,7 @@
   │  ACTIONS  write │ sketch │ fetch │ svg │ image │ approve │ cancel   │
   │           more  │ less   │ check │ calibrate                        │
   │  FLAGS    --buyer "Alice"   --direct   --no-voice   --size N        │
+  │           --pyro (wood burning)    --engine kokoro|voxtral|system   │
   │                                                                      │
   │  Step 1 ── readiness_check()                                        │
   │             /tmp/huenit_ready.flag   +   calibration.json           │

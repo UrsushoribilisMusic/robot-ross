@@ -30,6 +30,12 @@ CALIBRATION_FILE = os.path.join(SCRIPT_DIR, "calibration.json")
 READY_FLAG = "/tmp/huenit_ready.flag"
 TILT_SLOPE = 0.0      # mm of Z correction per mm of Y travel (loaded from calibration)
 
+# Pyrography config
+PYRO_FEED = 60
+PYRO_Z_FEED = 400
+PYRO_TRAVEL = 1500
+PYRO_Z_HOVER = 0.5
+
 OK_PAT = re.compile(rb"\bok\b", re.I)
 
 
@@ -378,12 +384,19 @@ def main():
     parser.add_argument("--spacing", type=float, default=2.0, help="Space between letters in mm (default 2)")
     parser.add_argument("--sound", type=str, default=None, help="MP3 to play before drawing")
     parser.add_argument("--feed", type=float, default=DEFAULT_DRAW_FEED, help="Draw feed rate mm/min (default 400)")
+    parser.add_argument("--pyro", action="store_true", help="Pyrography mode: slow feed rate for wood burning")
     parser.add_argument("--line-spacing", type=float, default=1.5, help="Line height multiplier (default 1.5x letter height)")
     parser.add_argument("--paper-width", type=float, default=180.0,
                         help="Usable paper width in mm — font auto-scales to fit (default 180)")
     parser.add_argument("--margin", type=float, default=10.0,
                         help="Left+right margin in mm each side (default 10)")
     args = parser.parse_args()
+
+    if args.pyro:
+        draw_feed = args.feed if args.feed != DEFAULT_DRAW_FEED else PYRO_FEED
+        print(f"  🔥 Pyrography mode: feed={draw_feed}mm/min")
+    else:
+        draw_feed = args.feed
 
     check_ready()
 
@@ -454,7 +467,7 @@ def main():
             g.send(f"G1 X{-offset:.3f} F{TRAVEL_FEED}", wait_ok=True)
             g.wait_motion()
 
-            pen = Pen(g, Z_UP, args.feed)
+            pen = Pen(g, Z_UP, draw_feed)
             pen.is_up = True
 
             print(f"  ✍ {line_label}: {line}")
