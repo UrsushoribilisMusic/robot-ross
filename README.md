@@ -55,8 +55,8 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | Telegram preview → approve/cancel | `robot-ross/bob_ross.py` | ✅ |
 | Job lock, caffeinate, SIGTERM stop | `robot-ross/bob_ross.py` | ✅ |
 | **Pyrography (wood burning)** | `huenit/huenit_svg.py` | ✅ |
-| **Voice Conversation (Whisper)** | `robot-ross/chat_ross.py` | ✅ |
-| **TTS Engines (Kokoro/Voxtral)** | `voice/speak.py` | ✅ |
+| **Voice Conversation (Whisper STT)** | `robot-ross/chat_ross.py` | ✅ |
+| **TTS Engines (Kokoro/Voxtral/System)** | `voice/speak.py` | ✅ |
 
 ### Phase 2 — Automated Studio (✅ Complete)
 
@@ -106,6 +106,33 @@ python3 ~/robot-ross/test_virtuals.py
 
 # Test Slot Bidding & Overwriting
 python3 ~/robot-ross/test_bidding.py
+```
+
+### Voice Showcase
+```bash
+# Full local voice loop
+python3 ~/robot-ross/skills/robot-ross/chat_ross.py --brain apertus --engine voxtral --lang en
+
+# Pyrography showcase mode
+python3 ~/robot-ross/skills/robot-ross/chat_ross.py --pyro --engine voxtral
+
+# Conversation-only demo
+python3 ~/robot-ross/skills/robot-ross/chat_ross.py --no-arm --brain apertus --engine kokoro
+```
+
+### Headless Bob Ross Commands
+```bash
+# Draw and narrate text
+python3 ~/robot-ross/skills/robot-ross/bob_ross.py write "Hello World"
+
+# Draw an existing SVG
+python3 ~/robot-ross/skills/robot-ross/bob_ross.py svg path/to/file.svg --size 80
+
+# Run pyrography mode
+python3 ~/robot-ross/skills/robot-ross/bob_ross.py svg design.svg --pyro --size 60
+
+# Silent dry run
+python3 ~/robot-ross/skills/robot-ross/bob_ross.py sketch "a happy little tree" --no-voice --dry-run
 ```
 
 ---
