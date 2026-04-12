@@ -5,6 +5,9 @@ artist_poller.py
 Polls the Salesman API every POLL_INTERVAL seconds for new Shopify orders,
 claims them atomically, runs bob_ross.py, then reports completion or failure.
 
+Throttling: Waits for the robot arm to be free (JOB_LOCK) before claiming.
+Retry: Implements exponential backoff for failed orders to avoid rapid failure loops.
+
 Usage:
     /usr/bin/python3 artist_poller.py
     POLL_INTERVAL=60 /usr/bin/python3 artist_poller.py   # override interval
@@ -28,6 +31,10 @@ BOB_ROSS = os.path.join(SCRIPT_DIR, "bob_ross.py")
 JOB_LOCK = "/tmp/robot_ross_running.lock"
 LOG_FILE = os.path.join(SCRIPT_DIR, "bob_ross.log")
 
+# ── State ─────────────────────────────────────────────────────────────────────
+_running = True
+_failed_orders = {}  # {order_id: (count, next_retry_ts)}
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -46,9 +53,6 @@ import salesman_client as sc
 from salesman_client import SalesmanAPIError
 
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
-_running = True
-
-
 def _handle_stop(signum, frame):
     global _running
     logger.info("POLLER received stop signal — will exit after current cycle")
@@ -83,12 +87,6 @@ def _get_video_url() -> str:
 def _extract_fields(order: dict) -> dict:
     """
     Extract normalised fields from an order with payload-first fallback.
-
-    Priority (mirrors JS ?? operator):
-      type    : payload.type    ?? order.type
-      content : payload.content ?? order.content ?? payload.notes
-      buyer   : payload.buyer   ?? order.buyer   ?? payload.customer
-      notes   : payload.notes   ?? order.notes
     """
     p = order.get("payload") or {}
     return {
@@ -103,7 +101,6 @@ def _extract_fields(order: dict) -> dict:
 def _build_command(order: dict):
     """
     Map order dict → bob_ross.py argv list.
-    Returns None for unknown order types (caller should fail the order).
     """
     fields = _extract_fields(order)
     otype   = fields["type"].lower()
@@ -115,13 +112,10 @@ def _build_command(order: dict):
     
     def _is_svg_source(value: str) -> bool:
         v = (value or "").strip()
-        if not v:
-            return False
-        if os.path.isfile(v) and v.lower().endswith(".svg"):
-            return True
+        if not v: return False
+        if os.path.isfile(v) and v.lower().endswith(".svg"): return True
         parsed = urlparse(v)
-        if parsed.scheme in ("http", "https") and parsed.path.lower().endswith(".svg"):
-            return True
+        if parsed.scheme in ("http", "https") and parsed.path.lower().endswith(".svg"): return True
         return v.lower().endswith(".svg")
 
     if otype == "write":
@@ -131,8 +125,6 @@ def _build_command(order: dict):
     elif otype == "fetch":
         return base + ["fetch", content] + buyer_args
     elif otype == "svg":
-        # Shopify "graphics/svg" orders often send a text prompt, not an SVG file/URL.
-        # Route prompt-like values to sketch so drawing can still execute.
         if _is_svg_source(content):
             return base + ["svg", content] + buyer_args
         return base + ["sketch", content, "--direct"] + buyer_args
@@ -148,12 +140,12 @@ def _build_command(order: dict):
 def poll_once() -> bool:
     """
     Run one poll cycle.
-    Returns True if an order was processed (successfully or not), False otherwise.
     """
-    # 1. Skip if the arm is already busy
-    if os.path.exists(JOB_LOCK):
-        logger.info("POLLER robot busy (lock exists) — skipping poll")
-        return False
+    # 1. Throttling: Wait if the arm is already busy (e.g. human still pinning art)
+    while os.path.exists(JOB_LOCK):
+        if not _running: return False
+        logger.info("POLLER robot busy (lock exists) — waiting 30s before checking queue...")
+        time.sleep(30)
 
     # 2. Fetch the next pending order
     try:
@@ -166,10 +158,18 @@ def poll_once() -> bool:
         return False
 
     if order is None:
-        logger.info("POLLER no orders — sleeping")
         return False
 
     order_id = order.get("id", "unknown")
+    
+    # 2b. Retry Backoff logic
+    now_ts = time.time()
+    if order_id in _failed_orders:
+        count, next_retry = _failed_orders[order_id]
+        if now_ts < next_retry:
+            logger.info("POLLER order %s is in backoff (failed %d times). Skipping.", order_id, count)
+            return False
+
     fields = _extract_fields(order)
     logger.info(
         "POLLER order %s received: type=%s buyer=%s content=%r",
@@ -194,7 +194,7 @@ def poll_once() -> bool:
         logger.warning("POLLER claim network error for %s — skipping: %s", order_id, e)
         return False
 
-    # 4. Ack (non-fatal if it fails — order is already claimed)
+    # 4. Ack
     try:
         sc.ack(order_id)
         logger.info("POLLER acked %s", order_id)
@@ -220,25 +220,31 @@ def poll_once() -> bool:
         rc = result.returncode
     except Exception as e:
         logger.error("POLLER subprocess launch failed for %s: %s", order_id, e)
-        try:
-            sc.fail(order_id, reason=f"subprocess launch failed: {e}", retryable=True)
-        except Exception as fe:
-            logger.warning("POLLER fail call error for %s: %s", order_id, fe)
-        return True
+        rc = -1
 
     # 7. Report result
     if rc == 0:
+        # Success: Clear failure tracking
+        if order_id in _failed_orders: del _failed_orders[order_id]
+        
         video_url = _get_video_url()
-        logger.info(
-            "POLLER %s complete (video_url=%s)", order_id, video_url or "<none>"
-        )
+        logger.info("POLLER %s complete (video_url=%s)", order_id, video_url or "<none>")
         try:
             sc.complete(order_id, video_url=video_url, notes="")
         except Exception as e:
             logger.warning("POLLER complete call failed for %s: %s", order_id, e)
     else:
+        # Failure: Track and apply backoff
+        count, _ = _failed_orders.get(order_id, (0, 0))
+        count += 1
+        # Exponential backoff: 2, 4, 8, 16... capped at 60 minutes
+        backoff_min = min(2 ** count, 60)
+        backoff_sec = backoff_min * 60 
+        _failed_orders[order_id] = (count, now_ts + backoff_sec)
+        
         reason = f"bob_ross exited {rc}"
-        logger.warning("POLLER %s failed: %s", order_id, reason)
+        logger.warning("POLLER %s failed (attempt %d): %s. Backoff until %s", 
+                       order_id, count, reason, time.ctime(now_ts + backoff_sec))
         try:
             sc.fail(order_id, reason=reason, retryable=True)
         except Exception as e:
@@ -249,7 +255,7 @@ def poll_once() -> bool:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    logger.info("POLLER starting — Artist Order Poller v1")
+    logger.info("POLLER starting — Artist Order Poller v2 (Throttled & Retry)")
 
     # Validate config before entering the loop
     try:
@@ -270,8 +276,7 @@ def main():
             poll_once()
             # Sleep in 1-second ticks so SIGINT/SIGTERM is handled promptly
             for _ in range(interval):
-                if not _running:
-                    break
+                if not _running: break
                 time.sleep(1)
     finally:
         caffeinate.terminate()
