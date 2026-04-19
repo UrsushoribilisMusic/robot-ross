@@ -310,9 +310,14 @@ def main():
     # Sketch handling (composed)
     if args.action == "sketch":
         if not args.content: parser.error("sketch requires a prompt")
-        svg_path = "/tmp/quickdraw_scene.svg"
-        compose_cmd = [sys.executable, os.path.join(HUENIT_DIR, "quickdraw_compose.py"), args.content, "--out", svg_path]
+        import tempfile
+        svg_path = os.path.join(tempfile.gettempdir(), "ai_sketch.svg")
+        log("SKETCH", f"Requesting Haiku SVG for: {args.content!r}")
+        compose_cmd = [sys.executable, os.path.join(HUENIT_DIR, "ai_sketch.py"), args.content, "--out", svg_path]
         subprocess.run(compose_cmd)
+        if not os.path.exists(svg_path):
+            log("SKETCH ERROR", "ai_sketch.py did not produce an SVG — aborting")
+            sys.exit(1)
         args.action = "svg"
         args.content = svg_path
 
