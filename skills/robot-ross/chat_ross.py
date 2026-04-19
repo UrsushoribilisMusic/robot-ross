@@ -138,20 +138,37 @@ def start_draw(subject, buyer=None, size=80, feed=None, pyro=False, no_obs=True,
         _draw_thread.start()
 
 # â”€â”€ TTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_tts_engine = "voxtral"
+_tts_engine  = "voxtral"
+_tts_voice   = None   # None = auto-select voice per detected language
+
+# Whisper language name -> Voxtral voice (female for consistent persona)
+_LANG_VOICE = {
+    "french":     "fr_marie_neutral",
+    "german":     "de_anna_neutral",
+    "spanish":    "es_lucia_neutral",
+    "english":    "en_emma_neutral",
+    "italian":    "it_giulia_neutral",
+    "portuguese": "pt_beatriz_neutral",
+}
+
+# Whisper language name -> label for system prompt
+_LANG_LABEL = {
+    "french": "French", "german": "German", "spanish": "Spanish",
+    "english": "English", "italian": "Italian", "portuguese": "Portuguese",
+}
 
 def speak(text, force=False):
     if not force and is_drawing():
-        print(f"  ðŸ’¬ (muted while drawing) {text}")
+        print(f"  (muted while drawing) {text}")
         return
-    print(f"  ðŸ—£  {text}")
+    print(f"  [speak] {text}")
     try:
-        subprocess.run(
-            [sys.executable, os.path.join(VOICE_DIR, "speak.py"), text, "--engine", _tts_engine],
-            timeout=120)
+        cmd = [sys.executable, os.path.join(VOICE_DIR, "speak.py"), text, "--engine", _tts_engine]
+        if _tts_voice:
+            cmd += ["--voice", _tts_voice]
+        subprocess.run(cmd, timeout=120)
     except Exception as e:
-        print(f"  âš   speak.py error: {e}")
-
+        print(f"  speak.py error: {e}")
 # â”€â”€ Conversation brain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 LOCAL_SYSTEM_PROMPT = """\
 You are Robot Ross, a friendly robot arm that draws on paper in the style of Bob Ross.
@@ -211,17 +228,21 @@ To ask for the visitor's name (optional, personalises narration):
   {{"action": "ask_name", "text": "..."}}
 """
 
-def _build_local_system(svgs, recent, drawing_subject):
+def _build_local_system(svgs, recent, drawing_subject, lang_label="English"):
     svg_list   = ", ".join(svgs.keys()) if svgs else "none"
     recent_str = ", ".join(recent) if recent else "none"
     status     = f"drawing {drawing_subject}" if drawing_subject else "idle"
-    return LOCAL_SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status)
+    lang_note  = f"
+Respond in {lang_label}." if lang_label != "English" else ""
+    return LOCAL_SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status) + lang_note
 
-def _build_system(svgs, recent, drawing_subject):
+def _build_system(svgs, recent, drawing_subject, lang_label="English"):
     svg_list = ", ".join(svgs.keys()) if svgs else "none loaded"
     recent_str = "\n".join(f"  - {r}" for r in recent) if recent else "  (none yet this session)"
     status = f"Currently drawing: {drawing_subject} â€” arm is busy." if drawing_subject else "Idle â€” ready to draw."
-    return SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status)
+    lang_note = f"
+IMPORTANT: The visitor is speaking {lang_label}. Respond in {lang_label}." if lang_label != "English" else ""
+    return SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status) + lang_note
 
 def _parse_json_reply(reply, history):
     history.append({"role": "assistant", "content": reply})
@@ -272,12 +293,12 @@ def _chat_haiku(client, history, user_text, system):
     )
     return _parse_json_reply(response.content[0].text.strip(), history)
 
-def chat(client, history, user_text, svgs, args):
+def chat(client, history, user_text, svgs, args, lang_label="English"):
     recent  = _get_recent_drawings()
     subject = current_subject()
-    system  = _build_system(svgs, recent, subject)
+    system  = _build_system(svgs, recent, subject, lang_label=lang_label)
     if args.brain in ("apertus", "mistral"):
-        system = _build_local_system(svgs, recent, subject)
+        system = _build_local_system(svgs, recent, subject, lang_label=lang_label)
         return _chat_ollama(args.brain, history, user_text, system)
     return _chat_haiku(client, history, user_text, system)
 
@@ -304,6 +325,8 @@ def main():
 
     global _tts_engine
     _tts_engine = args.engine
+    global _tts_voice
+    _tts_voice = _LANG_VOICE.get(args.lang or "english", None)
 
     claude  = anthropic.Anthropic()
     history = []
@@ -319,6 +342,10 @@ def main():
     while not _quit_flag.is_set():
         try:
             user_text = listener.listen()
+            # Update voice and language label based on what Whisper detected
+            if _tts_engine == "voxtral" and not args.lang:
+                global _tts_voice
+                _tts_voice = _LANG_VOICE.get(listener.last_lang, _LANG_VOICE["english"])
         except KeyboardInterrupt:
             break
         
@@ -330,7 +357,8 @@ def main():
             break
 
         drawing_note = f" (Note: arm is currently drawing '{current_subject()}')" if is_drawing() else ""
-        response = chat(claude, history, user_text + drawing_note, svgs, args)
+        lang_label = _LANG_LABEL.get(listener.last_lang, "English")
+        response = chat(claude, history, user_text + drawing_note, svgs, args, lang_label=lang_label)
         action   = response.get("action", "speak")
         text     = response.get("text", "")
 

@@ -99,8 +99,18 @@ def _speak_fallback(text):
 VOXTRAL_VOICE = "fr_marie_neutral"
 VOXTRAL_MODEL = "voxtral-mini-tts-latest"
 
+# Whisper language name → Voxtral voice_id (female voices for consistent persona)
+VOXTRAL_LANG_VOICES = {
+    "french":     "fr_marie_neutral",
+    "german":     "de_anna_neutral",
+    "spanish":    "es_lucia_neutral",
+    "english":    "en_emma_neutral",
+    "italian":    "it_giulia_neutral",
+    "portuguese": "pt_beatriz_neutral",
+}
 
-def _speak_voxtral(text):
+
+def _speak_voxtral(text, voice=None):
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:
         print("  Voxtral: MISTRAL_API_KEY not set — skipping", file=sys.stderr)
@@ -117,7 +127,7 @@ def _speak_voxtral(text):
     response = client.audio.speech.complete(
         model=VOXTRAL_MODEL,
         input=text,
-        voice_id=VOXTRAL_VOICE,
+        voice_id=voice or VOXTRAL_VOICE,
         response_format="wav",
     )
     audio_bytes = base64.b64decode(response.audio_data)
@@ -150,7 +160,7 @@ def _three_beeps():
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-def speak(text, dual=False, engine="kokoro"):
+def speak(text, dual=False, engine="kokoro", voice=None):
     """
     Speak text.
     engine: 'kokoro' (local), 'voxtral' (Mistral API), 'system' (OS fallback)
@@ -170,7 +180,7 @@ def speak(text, dual=False, engine="kokoro"):
         return
 
     if engine == "voxtral":
-        _speak_voxtral(text)
+        _speak_voxtral(text, voice=voice)
     elif engine == "kokoro":
         if KOKORO_AVAILABLE:
             try:
@@ -193,5 +203,7 @@ if __name__ == "__main__":
                         help="Play beeps, then Kokoro, then Voxtral for the same phrase")
     parser.add_argument("--engine", default="kokoro", choices=["kokoro", "voxtral", "system"],
                         help="TTS engine (default: kokoro)")
+    parser.add_argument("--voice",  default=None,
+                        help="Voxtral voice ID override (e.g. fr_marie_neutral, de_anna_neutral)")
     args = parser.parse_args()
-    speak(args.text, dual=args.dual, engine=args.engine)
+    speak(args.text, dual=args.dual, engine=args.engine, voice=args.voice)

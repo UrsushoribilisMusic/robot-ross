@@ -39,6 +39,7 @@ class WhisperListener:
         self.threshold = threshold
         self._model    = None
         self._model_size = model_size
+        self.last_lang = language or "english"
 
     def _load(self):
         if self._model is None:
@@ -96,6 +97,7 @@ class WhisperListener:
         kwargs = {"fp16": False, "language": self.language} if self.language else {"fp16": False}
         result = model.transcribe(audio, **kwargs)
         text   = result["text"].strip()
+        self.last_lang = result.get("language") or self.language or "english"
         print(f"  💬 Heard: {text}", flush=True)
         return text
 
