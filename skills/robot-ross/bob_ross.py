@@ -320,7 +320,8 @@ def main():
                 recording_start = time.time()
             except Exception: pass
 
-        _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])
+        if sys.platform == "darwin":
+            _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])
 
         # Narration
         narration_action = "pyro" if args.pyro else args.action
