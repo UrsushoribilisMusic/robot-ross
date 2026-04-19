@@ -171,11 +171,14 @@ def warning_tone():
         time.sleep(0.4)
 
 
+_tts_engine = "voxtral"
+
 def speak(text):
     """Speak text using voice/speak.py."""
     if not text: return
     try:
-        subprocess.run([sys.executable, os.path.join(VOICE_DIR, "speak.py"), text], timeout=120)
+        subprocess.run([sys.executable, os.path.join(VOICE_DIR, "speak.py"), text,
+                        "--engine", _tts_engine], timeout=120)
     except Exception as e:
         log("SPEAK ERROR", str(e))
 
@@ -274,12 +277,14 @@ def main():
     parser.add_argument("--size",   type=float)
     parser.add_argument("--pyro",   action="store_true")
     parser.add_argument("--feed",   type=float)
-    parser.add_argument("--engine", default="kokoro", choices=["kokoro", "voxtral", "system"])
+    parser.add_argument("--engine", default="voxtral", choices=["kokoro", "voxtral", "system"])
     parser.add_argument("--no-voice", action="store_true")
     parser.add_argument("--no-obs", action="store_true")
     parser.add_argument("--direct", action="store_true")
     parser.add_argument("--buyer",  default=None)
     args = parser.parse_args()
+    global _tts_engine
+    _tts_engine = args.engine
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
