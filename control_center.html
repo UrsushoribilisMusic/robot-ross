@@ -547,10 +547,14 @@ async function fetchStatus(){
     // calibration
     const c = d.calibration;
     const badge = document.getElementById('calBadge');
-    if(c.calibrated){
-      badge.className='cal ok'; badge.textContent='● Calibrated';
+    if(c.session_ready){
+      badge.className='cal ok'; badge.textContent='● Ready to draw';
       document.getElementById('calMeta').textContent =
         `Z_UP: ${c.z_up}mm · Tilt: ${c.tilt_slope}mm/mm`;
+    } else if(c.calibrated){
+      badge.className='cal no'; badge.textContent='⚠ Calibrate this session first';
+      document.getElementById('calMeta').textContent =
+        `Config: Z_UP ${c.z_up}mm — click Recalibrate before drawing`;
     } else {
       badge.className='cal no'; badge.textContent='● Not Calibrated';
       document.getElementById('calMeta').textContent = 'Run calibration before drawing';

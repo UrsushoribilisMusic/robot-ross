@@ -175,12 +175,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500)
 
     def _get_status(self):
-        cal = {"calibrated": False, "z_up": None, "tilt_slope": None}
+        import tempfile
+        READY_FLAG = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
+        session_ready = os.path.exists(READY_FLAG)
+        cal = {"calibrated": False, "session_ready": session_ready, "z_up": None, "tilt_slope": None}
         if os.path.exists(CAL_FILE):
             try:
                 with open(CAL_FILE) as f:
                     d = json.load(f)
-                cal = {"calibrated": True,
+                cal = {"calibrated": True, "session_ready": session_ready,
                        "z_up": d.get("z_up"),
                        "tilt_slope": d.get("tilt_slope")}
             except Exception:

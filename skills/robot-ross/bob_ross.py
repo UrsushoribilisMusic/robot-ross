@@ -249,7 +249,13 @@ def run_draw(action, content, size=None, pyro=False, feed=None):
     elif action == "svg":
         svg_path = content
         if not os.path.dirname(svg_path):
-            svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
+            # Check repo root first (control center serves SVGs from there)
+            local = os.path.join(SCRIPT_DIR, "..", "..", svg_path)
+            local = os.path.normpath(local)
+            if os.path.exists(local):
+                svg_path = local
+            else:
+                svg_path = os.path.expanduser(os.path.join("~/Downloads", svg_path))
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_svg.py"), svg_path, "--size", str(_svg_size(size))]
         if pyro: cmd.append("--pyro")
         if feed: cmd += ["--feed", str(feed)]
