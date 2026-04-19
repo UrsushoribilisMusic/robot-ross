@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robot Ross — Control Center</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#050a14;
+  --panel:#0d1626;
+  --border:#1a2f50;
+  --accent:#ff6b35;
+  --accent2:#00d4ff;
+  --green:#00e676;
+  --red:#ff1744;
+  --yellow:#ffea00;
+  --text:#c8d8f0;
+  --muted:#4a6a90;
+  --code:#030810;
+}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Segoe UI',system-ui,sans-serif;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  font-size:14px;
+}
+
+/* ── HEADER ── */
+header{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:10px 20px;
+  background:var(--panel);
+  border-bottom:2px solid var(--accent);
+  flex-shrink:0;
+}
+.logo{font-size:22px;font-weight:700;color:var(--accent);letter-spacing:1px;white-space:nowrap}
+.logo span{color:var(--accent2)}
+header h1{font-size:11px;color:var(--muted);font-weight:400;letter-spacing:3px;text-transform:uppercase}
+.indicators{margin-left:auto;display:flex;gap:18px;align-items:center}
+.ind{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:default}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:.3s}
+.dot.on{background:var(--green);box-shadow:0 0 7px var(--green)}
+.dot.off{background:var(--red)}
+.dot.warn{background:var(--yellow);box-shadow:0 0 7px var(--yellow)}
+.dot.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── MAIN GRID ── */
+main{
+  display:grid;
+  grid-template-columns:250px 1fr 360px;
+  gap:1px;
+  background:var(--border);
+  flex:1;
+  overflow:hidden;
+}
+.panel{background:var(--panel);overflow-y:auto;padding:16px}
+.panel h2{
+  font-size:10px;text-transform:uppercase;letter-spacing:2.5px;color:var(--accent2);
+  margin-bottom:16px;padding-bottom:7px;border-bottom:1px solid var(--border)
+}
+
+/* ── CONTROLS ── */
+.cg{margin-bottom:16px}
+.cl{
+  font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);
+  margin-bottom:7px;display:flex;align-items:center;gap:6px
+}
+.cl .val{margin-left:auto;color:var(--accent);font-size:12px;letter-spacing:0}
+
+/* toggle */
+.tw{display:flex;align-items:center;gap:10px}
+.tog{position:relative;width:44px;height:22px;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0;position:absolute}
+.ts{
+  position:absolute;inset:0;background:#1a2f50;border-radius:11px;
+  cursor:pointer;transition:.2s
+}
+.ts:before{
+  content:'';position:absolute;height:16px;width:16px;left:3px;top:3px;
+  background:var(--muted);border-radius:50%;transition:.2s
+}
+.tog input:checked+.ts{background:var(--accent2)}
+.tog input:checked+.ts:before{transform:translateX(22px);background:#fff}
+.tl{font-size:12px}
+
+/* inputs */
+select,input[type=text],input[type=number],textarea{
+  width:100%;background:var(--code);border:1px solid var(--border);
+  color:var(--text);padding:7px 11px;border-radius:6px;font-size:12px;
+  font-family:inherit;transition:.15s
+}
+select:focus,input:focus,textarea:focus{outline:none;border-color:var(--accent2)}
+textarea{resize:vertical;min-height:68px}
+
+/* calibration badge */
+.cal{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600
+}
+.cal.ok{background:rgba(0,230,118,.1);border:1px solid var(--green);color:var(--green)}
+.cal.no{background:rgba(255,23,68,.1);border:1px solid var(--red);color:var(--red)}
+.cal-meta{font-size:10px;color:var(--muted);margin-top:5px}
+
+/* buttons */
+button{
+  padding:7px 14px;border-radius:6px;border:none;cursor:pointer;
+  font-size:12px;font-family:inherit;transition:.15s;white-space:nowrap
+}
+.bp{background:var(--accent);color:#fff;font-weight:600}
+.bp:hover{background:#ff8c5a}
+.bp:disabled{background:#3a2010;color:#6a4020;cursor:not-allowed}
+.bs{background:transparent;color:var(--accent2);border:1px solid var(--accent2)}
+.bs:hover{background:rgba(0,212,255,.08)}
+.bv{background:rgba(0,230,118,.12);color:var(--green);border:1px solid var(--green);font-size:16px;padding:7px 11px}
+.bv.rec{background:rgba(255,23,68,.15);color:var(--red);border-color:var(--red);animation:pulse 1s infinite}
+.bsm{padding:4px 9px;font-size:10px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* divider */
+.div{height:1px;background:var(--border);margin:14px 0}
+
+/* ── MODE TABS ── */
+.tabs{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px}
+.tab{
+  padding:5px 12px;border-radius:20px;border:1px solid var(--border);
+  background:transparent;color:var(--muted);font-size:11px;cursor:pointer;
+  transition:.15s;text-transform:uppercase;letter-spacing:.8px
+}
+.tab.on{border-color:var(--accent);color:var(--accent);background:rgba(255,107,53,.1)}
+.tab:hover:not(.on){border-color:var(--accent2);color:var(--accent2)}
+
+/* mode sections */
+.ms{display:none}.ms.on{display:block}
+
+/* shape grid */
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.sb{
+  padding:9px;border:1px solid var(--border);background:var(--code);
+  color:var(--text);border-radius:6px;cursor:pointer;text-align:center;
+  font-size:11px;transition:.15s
+}
+.sb.on{border-color:var(--accent);color:var(--accent);background:rgba(255,107,53,.08)}
+.sb:hover:not(.on){border-color:var(--accent2)}
+
+/* SVG list */
+.svgl{display:flex;flex-direction:column;gap:5px}
+.svgi{
+  display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;
+  border:1px solid var(--border);cursor:pointer;transition:.15s
+}
+.svgi:hover{border-color:var(--accent2)}
+.svgi.on{border-color:var(--accent);background:rgba(255,107,53,.08)}
+.svgi .ico{font-size:18px}
+.svgi .nm{font-size:12px}
+.svgi .sz{font-size:10px;color:var(--muted)}
+
+/* preview box */
+.pvbox{
+  width:100%;aspect-ratio:1;border:1px solid var(--border);border-radius:8px;
+  background:#fff;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;margin-top:10px
+}
+.pvbox img,.pvbox svg{max-width:90%;max-height:90%;object-fit:contain}
+.pvph{color:#aaa;font-size:12px;text-align:center;padding:16px}
+
+/* size slider */
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+
+/* ── CHAT PANEL ── */
+.chatbox{
+  height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;
+  padding:10px;margin-bottom:10px;background:var(--code);
+  display:flex;flex-direction:column;gap:8px
+}
+.msg{padding:7px 11px;border-radius:8px;font-size:12px;line-height:1.55;max-width:88%}
+.msg.u{align-self:flex-end;background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.25)}
+.msg.r{align-self:flex-start;background:rgba(255,107,53,.12);border:1px solid rgba(255,107,53,.25)}
+.msg .snd{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px}
+
+.cir{display:flex;gap:7px;margin-bottom:10px}
+.cir input{flex:1}
+
+/* confirm box */
+.cfm{
+  display:none;border:1px solid var(--accent);border-radius:8px;
+  padding:12px;background:rgba(255,107,53,.07);margin-top:10px
+}
+.cfm.on{display:block}
+.cfm p{font-size:12px;margin-bottom:8px}
+.cfm .cfc{
+  font-family:monospace;font-size:11px;color:var(--accent2);
+  background:var(--code);padding:5px 9px;border-radius:4px;margin-bottom:8px;
+  word-break:break-all
+}
+.cfm-btns{display:flex;gap:7px;flex-wrap:wrap}
+
+/* typing cursor */
+.cur{
+  display:inline-block;width:2px;height:12px;background:var(--accent);
+  animation:blink .7s infinite;vertical-align:text-bottom;margin-left:1px
+}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+/* quick buttons */
+.qbtns{display:flex;flex-wrap:wrap;gap:5px}
+
+/* voice status */
+#vstatus{display:none;font-size:11px;color:var(--green);margin-top:6px}
+
+/* ── FOOTER ── */
+footer{
+  background:var(--code);border-top:1px solid var(--border);
+  padding:10px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0
+}
+.flbl{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);white-space:nowrap}
+.fcmd{
+  flex:1;font-family:monospace;font-size:12px;color:var(--accent2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.fact{display:flex;gap:7px}
+
+/* scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--panel)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* running badge */
+.running{
+  display:none;align-items:center;gap:6px;font-size:11px;
+  color:var(--yellow);padding:3px 10px;border-radius:20px;
+  border:1px solid var(--yellow);background:rgba(255,234,0,.08)
+}
+.running.on{display:flex}
+.spin2{animation:blink 1s infinite}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header>
+  <span class="logo">🤖 Robot<span>Ross</span></span>
+  <h1>Control Center</h1>
+  <div class="indicators">
+    <div class="ind"><div class="dot warn" id="darm"></div><span id="larm">Arm</span></div>
+    <div class="ind"><div class="dot warn" id="dol"></div><span id="lol">Ollama</span></div>
+    <div class="ind"><div class="dot warn" id="dobs"></div><span>OBS</span></div>
+    <div class="ind"><div class="dot off" id="dsc"></div><span id="lsc">Showcase</span></div>
+    <div class="running" id="jobrun"><span class="spin2">⬤</span> Drawing…</div>
+  </div>
+</header>
+
+<!-- ═══════════════════════ MAIN ═══════════════════════ -->
+<main>
+
+<!-- ──────── PANEL 1: SESSION ──────── -->
+<section class="panel">
+  <h2>Session</h2>
+
+  <div class="cg">
+    <div class="cl">📷 Camera / OBS Recording</div>
+    <div class="tw">
+      <label class="tog"><input type="checkbox" id="togCam" checked onchange="upd()"><span class="ts"></span></label>
+      <span class="tl" id="lblCam">On</span>
+    </div>
+  </div>
+
+  <div class="cg">
+    <div class="cl">🎙️ Narration</div>
+    <div class="tw">
+      <label class="tog"><input type="checkbox" id="togNar" checked onchange="upd()"><span class="ts"></span></label>
+      <span class="tl" id="lblNar">On</span>
+    </div>
+  </div>
+
+  <div class="cg">
+    <div class="cl">🔊 TTS Engine</div>
+    <select id="selTts" onchange="upd()">
+      <option value="kokoro">Kokoro (Neural)</option>
+      <option value="voxtral">Voxtral</option>
+      <option value="system">System TTS</option>
+    </select>
+  </div>
+
+  <div class="cg">
+    <div class="cl">👤 Buyer / Guest Name</div>
+    <input type="text" id="inpBuyer" placeholder="e.g. Alice" oninput="upd()">
+  </div>
+
+  <div class="div"></div>
+
+  <div class="cg">
+    <div class="cl">🎯 Calibration</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="cal ok" id="calBadge">● Calibrated</span>
+      <button class="bs bsm" onclick="runCalibrate()">Recalibrate</button>
+    </div>
+    <div class="cal-meta" id="calMeta">Z_UP: — · Tilt: —</div>
+  </div>
+
+  <div class="div"></div>
+
+  <div class="cg">
+    <div class="cl">⚡ Direct Mode <span style="font-size:9px;color:var(--muted)">(skip preview)</span></div>
+    <div class="tw">
+      <label class="tog"><input type="checkbox" id="togDir" onchange="upd()"><span class="ts"></span></label>
+      <span class="tl" id="lblDir">Off</span>
+    </div>
+  </div>
+
+  <div class="div"></div>
+
+  <div style="display:flex;gap:7px;flex-wrap:wrap">
+    <button class="bs bsm" onclick="apiSimple('check')">▷ Check Status</button>
+    <button class="bs bsm" onclick="apiSimple('approve')">✓ Approve</button>
+    <button class="bs bsm" onclick="apiSimple('cancel')">✗ Cancel</button>
+  </div>
+</section>
+
+<!-- ──────── PANEL 2: DRAWING COMMAND ──────── -->
+<section class="panel">
+  <h2>Drawing Command</h2>
+
+  <div class="tabs">
+    <button class="tab on" onclick="setMode('write',this)">✏️ Write</button>
+    <button class="tab" onclick="setMode('draw',this)">⬡ Draw</button>
+    <button class="tab" onclick="setMode('svg',this)">📐 SVG</button>
+    <button class="tab" onclick="setMode('sketch',this)">🎨 Sketch</button>
+    <button class="tab" onclick="setMode('image',this)">🖼️ Image</button>
+    <button class="tab" onclick="setMode('fetch',this)">🌐 Fetch</button>
+  </div>
+
+  <!-- Write -->
+  <div class="ms on" id="ms-write">
+    <div class="cl">Text to write</div>
+    <textarea id="inpWrite" placeholder="Enter text for the arm to write…" oninput="upd()" rows="3"></textarea>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Max 255 chars · auto-wraps at ~35 chars/line</div>
+  </div>
+
+  <!-- Draw -->
+  <div class="ms" id="ms-draw">
+    <div class="cl">Shape</div>
+    <div class="sg">
+      <button class="sb on" onclick="setShape(this,'square')">⬛ Square</button>
+      <button class="sb" onclick="setShape(this,'circle')">⭕ Circle</button>
+      <button class="sb" onclick="setShape(this,'triangle')">🔺 Triangle</button>
+      <button class="sb" onclick="setShape(this,'demo')">✨ Demo</button>
+    </div>
+  </div>
+
+  <!-- SVG -->
+  <div class="ms" id="ms-svg">
+    <div class="cl">SVG files on disk</div>
+    <div class="svgl" id="svgList">
+      <div style="color:var(--muted);font-size:11px">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Sketch -->
+  <div class="ms" id="ms-sketch">
+    <div class="cl">Sketch prompt (AI-generated SVG)</div>
+    <textarea id="inpSketch" placeholder="e.g. a happy little tree beside a lake" oninput="upd()" rows="3"></textarea>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Claude Haiku → pen-plotter SVG (10–40 elements)</div>
+  </div>
+
+  <!-- Image -->
+  <div class="ms" id="ms-image">
+    <div class="cl">Image file path</div>
+    <input type="text" id="inpImage" placeholder="e.g. photo.jpg" oninput="upd()">
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Photo → vtracer → SVG → preview → approve</div>
+  </div>
+
+  <!-- Fetch -->
+  <div class="ms" id="ms-fetch">
+    <div class="cl">SVG URL</div>
+    <input type="text" id="inpFetch" placeholder="https://example.com/design.svg" oninput="upd()">
+  </div>
+
+  <div class="div"></div>
+
+  <!-- Size -->
+  <div class="cg">
+    <div class="cl">📏 Size (mm)<span class="val" id="sizeVal">80</span></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;color:var(--muted)">10</span>
+      <input type="range" id="inpSize" min="10" max="125" value="80" oninput="updSize()">
+      <span style="font-size:10px;color:var(--muted)">125mm</span>
+    </div>
+  </div>
+
+  <!-- Preview (SVG/sketch/image modes) -->
+  <div id="pvArea" style="display:none">
+    <div class="cl">🔍 Preview</div>
+    <div id="pvWait" style="display:none;font-size:11px;color:var(--yellow);margin-bottom:7px">
+      <span class="spin2">⬤</span> Generating sketch… waiting for Robot Ross
+    </div>
+    <div class="pvbox" id="pvBox"><div class="pvph">Select a file or generate a sketch to preview</div></div>
+    <div style="margin-top:8px;display:flex;gap:7px">
+      <button class="bp bsm" onclick="doApprove()">✓ Approve &amp; Draw</button>
+      <button class="bs bsm" onclick="doCancel()">✗ Cancel</button>
+    </div>
+  </div>
+
+</section>
+
+<!-- ──────── PANEL 3: TALK TO ROSS ──────── -->
+<section class="panel">
+  <h2>Talk to Ross</h2>
+
+  <div class="chatbox" id="chatBox">
+    <div class="msg r">
+      <div class="snd">Robot Ross</div>
+      Hello! I'm Robot Ross, your happy little drawing robot. What would you like me to create today?
+    </div>
+  </div>
+
+  <div class="cir">
+    <input type="text" id="chatIn" placeholder="Ask Ross something…" onkeydown="if(event.key==='Enter')send()">
+    <button class="bv" id="btnVoice" onclick="toggleVoice()" title="Voice input">🎤</button>
+    <button class="bp" onclick="send()">Ask</button>
+  </div>
+
+  <div id="vstatus">🎤 Listening… say your command</div>
+
+  <!-- Confirmation -->
+  <div class="cfm" id="cfmBox">
+    <p><strong>🤖 Ross wants to execute:</strong></p>
+    <div class="cfc" id="cfmCmd">python bob_ross.py …</div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Say <em>"Yes, start"</em> or click Confirm:</p>
+    <div class="cfm-btns">
+      <button class="bp bsm" onclick="confirmDraw()">✓ Confirm</button>
+      <button class="bv bsm" onclick="voiceConfirm()" title="Voice confirm">🎤 Voice</button>
+      <button class="bs bsm" onclick="cancelCfm()">✗ Cancel</button>
+    </div>
+  </div>
+
+  <div class="div"></div>
+
+  <div class="cl" style="margin-bottom:7px">Quick Commands</div>
+  <div class="qbtns">
+    <button class="bs bsm" onclick="qa('Check if ready to draw')">Check status</button>
+    <button class="bs bsm" onclick="qa('Calibrate the arm')">Calibrate</button>
+    <button class="bs bsm" onclick="qa('Draw a happy little tree')">Happy tree</button>
+    <button class="bs bsm" onclick="qa('Write Hello World')">Write text</button>
+    <button class="bs bsm" onclick="qa('Draw a circle')">Draw circle</button>
+    <button class="bs bsm" onclick="qa('Load the bear SVG')">Load bear</button>
+  </div>
+
+  <div class="div"></div>
+
+  <!-- ── Showcase Mode ── -->
+  <div class="cl" style="margin-bottom:10px">🎤 Showcase Mode</div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+    Full voice loop: Whisper STT → Apertus brain → Voxtral TTS → arm draws.
+    Robot Ross greets visitors and responds to spoken requests.
+  </div>
+  <div style="margin-bottom:8px">
+    <label class="cl" style="margin-bottom:5px">Voice</label>
+    <select id="scVoice" style="width:100%">
+      <option value="voxtral" selected>Voxtral (Mistral — default)</option>
+      <option value="kokoro">Kokoro (local neural)</option>
+    </select>
+  </div>
+  <div style="margin-bottom:8px">
+    <label class="tw"><input type="checkbox" id="scPyro"> <span class="tl">Pyrography mode</span></label>
+  </div>
+  <div style="margin-bottom:8px">
+    <label class="tw"><input type="checkbox" id="scNoArm"> <span class="tl">No arm (conversation only)</span></label>
+  </div>
+  <div style="display:flex;gap:7px">
+    <button class="bp" id="btnScStart" onclick="showcaseStart()" style="flex:1">▶ Start Showcase</button>
+    <button class="bs" id="btnScStop" onclick="showcaseStop()" style="flex:1" disabled>■ Stop</button>
+  </div>
+  <div id="scStatus" style="display:none;margin-top:8px;font-size:11px;color:var(--green)">
+    <span class="spin2">⬤</span> Showcase running — speak to Robot Ross
+  </div>
+</section>
+
+</main>
+
+<!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+<footer>
+  <span class="flbl">Command</span>
+  <code class="fcmd" id="fcmd">python bob_ross.py write "Hello World" --size 80</code>
+  <div class="fact">
+    <button class="bs bsm" onclick="copyCmd()">📋 Copy</button>
+    <button class="bp" onclick="execute()">▶ Execute</button>
+  </div>
+</footer>
+
+<script>
+// ══════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════
+let mode       = 'write';
+let selSvg     = null;
+let selShape   = 'square';
+let isRec      = false;
+let recog      = null;
+let pending    = null;  // command pending confirmation
+
+const SVG_ICONS = {
+  bear:'🐻', Bear2:'🐻', donkey:'🫏', CasaCucu:'🏠', API:'📊'
+};
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+(async function init(){
+  upd();
+  updSize();
+  loadVoices();
+  await fetchStatus();
+  await fetchSvgs();
+  setInterval(fetchStatus, 5000);
+})();
+
+// ══════════════════════════════════════════════════
+//  API CALLS
+// ══════════════════════════════════════════════════
+async function fetchStatus(){
+  try{
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    // arm
+    setDot('darm', d.arm_port ? 'warn' : 'off');
+    document.getElementById('larm').textContent = d.arm_port || 'No port';
+    // ollama
+    setDot('dol', d.ollama ? 'on' : 'off');
+    document.getElementById('lol').textContent = d.ollama ? 'Apertus ready' : 'Ollama offline';
+    // showcase
+    const sc = d.showcase_running;
+    setDot('dsc', sc ? 'on' : 'off');
+    document.getElementById('lsc').textContent = sc ? 'Showcase ON' : 'Showcase';
+    document.getElementById('btnScStart').disabled = !!sc;
+    document.getElementById('btnScStop').disabled  = !sc;
+    document.getElementById('scStatus').style.display = sc ? 'block' : 'none';
+    // calibration
+    const c = d.calibration;
+    const badge = document.getElementById('calBadge');
+    if(c.calibrated){
+      badge.className='cal ok'; badge.textContent='● Calibrated';
+      document.getElementById('calMeta').textContent =
+        `Z_UP: ${c.z_up}mm · Tilt: ${c.tilt_slope}mm/mm`;
+    } else {
+      badge.className='cal no'; badge.textContent='● Not Calibrated';
+      document.getElementById('calMeta').textContent = 'Run calibration before drawing';
+    }
+    // job running
+    const jr = document.getElementById('jobrun');
+    jr.className = 'running' + (d.job_running ? ' on' : '');
+    // disable execute while running
+    document.querySelector('footer .bp').disabled = d.job_running;
+  }catch(e){ /* server not yet up */ }
+}
+
+async function fetchSvgs(){
+  try{
+    const r = await fetch('/api/svgs');
+    const d = await r.json();
+    const list = document.getElementById('svgList');
+    if(!d.svgs.length){ list.innerHTML='<div style="color:var(--muted);font-size:11px">No SVG files found</div>'; return; }
+    list.innerHTML = d.svgs.map(s=>{
+      const base = s.name.replace(/\.svg$/i,'');
+      const ico  = SVG_ICONS[base] || '📐';
+      return `<div class="svgi" onclick="selSvgFile(this,'${s.name}')">
+        <span class="ico">${ico}</span>
+        <div><div class="nm">${s.name}</div><div class="sz">${s.size_kb} KB</div></div>
+      </div>`;
+    }).join('');
+  }catch(e){}
+}
+
+async function postExecute(args){
+  try{
+    const r = await fetch('/api/execute',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({args})
+    });
+    return await r.json();
+  }catch(e){ return {error:String(e)}; }
+}
+
+async function postChat(message){
+  try{
+    const r = await fetch('/api/chat',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message})
+    });
+    return (await r.json()).response || '';
+  }catch(e){ return getFallback(); }
+}
+
+async function apiSimple(action){
+  const args = [action];
+  await postExecute(args);
+  setTimeout(fetchStatus, 1500);
+}
+
+// ══════════════════════════════════════════════════
+//  COMMAND BUILDER
+// ══════════════════════════════════════════════════
+function buildArgs(){
+  const size  = document.getElementById('inpSize').value;
+  const cam   = document.getElementById('togCam').checked;
+  const nar   = document.getElementById('togNar').checked;
+  const buyer = document.getElementById('inpBuyer').value.trim();
+  const dir   = document.getElementById('togDir').checked;
+  let   args  = [];
+
+  switch(mode){
+    case 'write':{
+      const t = document.getElementById('inpWrite').value.trim() || 'Hello World';
+      args = ['write', t, '--size', size];
+      break;
+    }
+    case 'draw':
+      args = ['draw', selShape, size];
+      break;
+    case 'svg':
+      args = ['svg', selSvg || 'your-file.svg', '--size', size];
+      break;
+    case 'sketch':{
+      const p = document.getElementById('inpSketch').value.trim() || 'a happy little tree';
+      args = ['sketch', p, '--size', size];
+      break;
+    }
+    case 'image':{
+      const i = document.getElementById('inpImage').value.trim() || 'photo.jpg';
+      args = ['image', i, '--size', size];
+      break;
+    }
+    case 'fetch':{
+      const u = document.getElementById('inpFetch').value.trim() || 'https://example.com/design.svg';
+      args = ['fetch', u, '--size', size];
+      break;
+    }
+  }
+  if(!cam) args.push('--no-obs');
+  if(!nar) args.push('--no-voice');
+  if(buyer){ args.push('--buyer'); args.push(buyer); }
+  if(dir)  args.push('--direct');
+  return args;
+}
+
+function buildCmdStr(args){
+  return 'python bob_ross.py ' + args.map(a=>(a.includes(' ')?`"${a}"`:a)).join(' ');
+}
+
+function upd(){
+  const args = buildArgs();
+  document.getElementById('fcmd').textContent = buildCmdStr(args);
+  document.getElementById('lblCam').textContent = document.getElementById('togCam').checked ? 'On':'Off';
+  document.getElementById('lblNar').textContent = document.getElementById('togNar').checked ? 'On':'Off';
+  document.getElementById('lblDir').textContent = document.getElementById('togDir').checked ? 'On':'Off';
+}
+
+function updSize(){
+  const v = document.getElementById('inpSize').value;
+  document.getElementById('sizeVal').textContent = v;
+  upd();
+}
+
+// ══════════════════════════════════════════════════
+//  MODE & SHAPE
+// ══════════════════════════════════════════════════
+function setMode(m, btn){
+  mode = m;
+  document.querySelectorAll('.tab').forEach(t=>{
+    const oc = t.getAttribute('onclick') || '';
+    t.classList.toggle('on', btn ? t===btn : oc.includes(`'${m}'`));
+  });
+  document.querySelectorAll('.ms').forEach(s=>s.classList.remove('on'));
+  document.getElementById('ms-'+m).classList.add('on');
+  const showPv = ['svg','sketch','image'].includes(m);
+  document.getElementById('pvArea').style.display = showPv ? 'block':'none';
+  if(m!=='svg'){ selSvg=null; document.querySelectorAll('.svgi').forEach(i=>i.classList.remove('on')); }
+  upd();
+}
+
+function setShape(btn, shape){
+  document.querySelectorAll('.sb').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  selShape = shape;
+  upd();
+}
+
+// ══════════════════════════════════════════════════
+//  SVG SELECTION & PREVIEW
+// ══════════════════════════════════════════════════
+function selSvgFile(el, name){
+  document.querySelectorAll('.svgi').forEach(i=>i.classList.remove('on'));
+  el.classList.add('on');
+  selSvg = name;
+  upd();
+  // preview via server
+  const box = document.getElementById('pvBox');
+  box.innerHTML = `<img src="/svg/${encodeURIComponent(name)}" alt="${name}"
+    style="max-width:90%;max-height:90%;object-fit:contain"
+    onerror="this.parentNode.innerHTML='<div class=pvph>📐 ${name}<br><small>Preview unavailable</small></div>'">`;
+  document.getElementById('pvArea').style.display = 'block';
+}
+
+function doApprove(){
+  const args = buildArgs();
+  addMsg('ross',`Perfect! Sending ${selSvg||'drawing'} to the arm now. Here we go! 🎨`);
+  showCfm(buildCmdStr(args), args);
+}
+
+function doCancel(){
+  selSvg = null;
+  document.querySelectorAll('.svgi').forEach(i=>i.classList.remove('on'));
+  document.getElementById('pvBox').innerHTML='<div class="pvph">Select a file to preview</div>';
+  upd();
+}
+
+// ══════════════════════════════════════════════════
+//  CALIBRATE
+// ══════════════════════════════════════════════════
+function runCalibrate(){
+  addMsg('ross','Calibration time! Like tuning our brushes before painting. Running now…');
+  postExecute(['calibrate']).then(()=>setTimeout(fetchStatus,3000));
+}
+
+// ══════════════════════════════════════════════════
+//  EXECUTE
+// ══════════════════════════════════════════════════
+function execute(){
+  const args = buildArgs();
+  showCfm(buildCmdStr(args), args);
+  addMsg('ross','Ready to execute! Please confirm when you want to start drawing.');
+}
+
+async function runConfirmedCommand(args){
+  addMsg('ross','🎨 Starting now! Happy little strokes…');
+  const res = await postExecute(args);
+  if(res.error){ addMsg('ross',`⚠️ Error: ${res.error}`); return; }
+  // For sketch/image: show preview area and start polling for the generated SVG
+  if(args[0] === 'sketch' || args[0] === 'image'){
+    setMode(args[0]);
+    document.getElementById('pvArea').style.display = 'block';
+    document.getElementById('pvWait').style.display = 'block';
+    document.getElementById('pvBox').innerHTML = '<div class="pvph">Waiting for generated SVG…</div>';
+    startPendingPoll();
+  }
+  setTimeout(fetchStatus, 1500);
+}
+
+let _pollTimer = null;
+
+function startPendingPoll(){
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(async ()=>{
+    try{
+      const r = await fetch('/api/pending');
+      const d = await r.json();
+      if(d.pending && d.svg_path){
+        clearInterval(_pollTimer); _pollTimer = null;
+        document.getElementById('pvWait').style.display = 'none';
+        // Load the generated SVG via /pending-svg (busts cache with timestamp)
+        const box = document.getElementById('pvBox');
+        const ts  = Date.now();
+        box.innerHTML = `<img src="/pending-svg?t=${ts}" alt="Generated sketch"
+          style="max-width:90%;max-height:90%;object-fit:contain"
+          onerror="this.parentNode.innerHTML='<div class=pvph>⚠️ Preview unavailable<br><small>SVG generated — use Approve to draw</small></div>'">`;
+        document.getElementById('pvArea').style.display = 'block';
+        const label = d.prompt ? `"${d.prompt}"` : 'sketch';
+        addMsg('ross', `✨ Sketch ready: ${label}. Here's the preview — approve to draw it!`);
+        speakText(`Sketch ready! Take a look at the preview. Say approve to draw it!`);
+      }
+    }catch(e){ /* server busy */ }
+  }, 2000);
+  // Stop polling after 3 minutes (sketch should never take that long)
+  setTimeout(()=>{ if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null;
+    document.getElementById('pvWait').style.display='none'; } }, 180000);
+}
+
+// ══════════════════════════════════════════════════
+//  CONFIRM BOX
+// ══════════════════════════════════════════════════
+function showCfm(cmdStr, args){
+  document.getElementById('cfmCmd').textContent = cmdStr;
+  document.getElementById('cfmBox').classList.add('on');
+  document.getElementById('fcmd').textContent = cmdStr;  // sync footer to pending command
+  pending = args;
+  const cb = document.getElementById('chatBox');
+  cb.scrollTop = cb.scrollHeight;
+}
+
+function confirmDraw(){
+  document.getElementById('cfmBox').classList.remove('on');
+  if(pending) runConfirmedCommand(pending);
+  pending = null;
+  upd(); // restore footer to current UI state
+}
+
+function cancelCfm(){
+  document.getElementById('cfmBox').classList.remove('on');
+  addMsg('ross',"No worries! Whenever you're ready, just say the word. 🌿");
+  pending = null;
+  upd(); // restore footer
+}
+
+// Switch the UI to SVG mode and select a specific file (used by chat flow)
+function activateSvgFile(filename){
+  setMode('svg');
+  const items = document.querySelectorAll('#svgList .svgi');
+  for(const item of items){
+    const nm = item.querySelector('.nm');
+    if(nm && nm.textContent.trim() === filename){
+      selSvgFile(item, filename);
+      return true;
+    }
+  }
+  return false;
+}
+
+function voiceConfirm(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ confirmDraw(); return; }
+  const r = new SR(); r.lang='en-US';
+  r.onresult = e=>{
+    const said = e.results[0][0].transcript.toLowerCase();
+    if(said.includes('yes')||said.includes('start')||said.includes('go')||said.includes('confirm'))
+      confirmDraw();
+    else if(said.includes('no')||said.includes('cancel'))
+      cancelCfm();
+    else confirmDraw(); // default yes
+  };
+  r.onerror = ()=>confirmDraw();
+  r.start();
+  document.getElementById('vstatus').style.display='block';
+  setTimeout(()=>document.getElementById('vstatus').style.display='none', 4000);
+}
+
+// ══════════════════════════════════════════════════
+//  CHAT
+// ══════════════════════════════════════════════════
+function addMsg(who, text){
+  const box = document.getElementById('chatBox');
+  const div = document.createElement('div');
+  div.className = `msg ${who==='user'?'u':'r'}`;
+  div.innerHTML = `<div class="snd">${who==='user'?'You':'Robot Ross'}</div>${escHtml(text)}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+function typeMsg(text, onDone){
+  const box = document.getElementById('chatBox');
+  const div = document.createElement('div');
+  div.className = 'msg r';
+  div.innerHTML = '<div class="snd">Robot Ross</div><span id="_tt"></span><span class="cur"></span>';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  let i=0;
+  const sp  = div.querySelector('#_tt');
+  const cur = div.querySelector('.cur');
+  const t   = setInterval(()=>{
+    if(i<text.length){ sp.textContent+=text[i++]; box.scrollTop=box.scrollHeight; }
+    else{ cur.remove(); clearInterval(t); if(onDone) onDone(); }
+  }, 20);
+}
+
+async function send(){
+  const inp = document.getElementById('chatIn');
+  const msg = inp.value.trim();
+  if(!msg) return;
+  inp.value = '';
+  addMsg('user', msg);
+
+  // thinking indicator
+  const th = document.getElementById('chatBox');
+  const thd = document.createElement('div');
+  thd.className='msg r'; thd.id='thinking';
+  thd.innerHTML='<div class="snd">Robot Ross</div><span class="cur"></span>';
+  th.appendChild(thd); th.scrollTop=th.scrollHeight;
+
+  const response = await postChat(msg);
+  thd.remove();
+
+  // parse optional command hint from response
+  let displayText = response;
+  let cmdArgs = null;
+  const cmdMatch = response.match(/\{[\s\S]*?"cmd"\s*:\s*"([^"]+)"[\s\S]*?"arg"\s*:\s*"([^"]+)"[\s\S]*?\}/);
+  if(cmdMatch){
+    displayText = response.replace(cmdMatch[0],'').trim();
+    cmdArgs = buildArgsFromHint(cmdMatch[1], cmdMatch[2]);
+  }
+
+  typeMsg(displayText || response, ()=>{
+    speakText(displayText.substring(0,200));
+    if(cmdArgs){
+      // If the hint is an SVG file, switch the UI panel and show the preview
+      if(cmdMatch[1] === 'svg') activateSvgFile(cmdMatch[2]);
+      setTimeout(()=>showCfm(buildCmdStr(cmdArgs), cmdArgs), 400);
+    }
+  });
+}
+
+function buildArgsFromHint(cmd, arg){
+  const size = document.getElementById('inpSize').value;
+  const buyer = document.getElementById('inpBuyer').value.trim();
+  const cam = document.getElementById('togCam').checked;
+  const nar = document.getElementById('togNar').checked;
+  let args = [cmd, arg, '--size', size];
+  if(!cam) args.push('--no-obs');
+  if(!nar) args.push('--no-voice');
+  if(buyer){ args.push('--buyer'); args.push(buyer); }
+  return args;
+}
+
+function qa(text){ document.getElementById('chatIn').value=text; send(); }
+
+function getFallback(){
+  const list = [
+    "Oh, what a wonderful idea! You know, every drawing starts with a vision. Just tell me what you'd like!",
+    "Fantastic! In our happy little world, every request is a new adventure. Let me bring that to life!",
+    "Oh my goodness, I love that idea! There are no mistakes — only happy accidents. Shall we begin?",
+  ];
+  return list[Math.floor(Math.random()*list.length)];
+}
+
+// ══════════════════════════════════════════════════
+//  VOICE INPUT
+// ══════════════════════════════════════════════════
+function toggleVoice(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ alert('Voice input requires Chrome or Edge.'); return; }
+  if(isRec){ if(recog) recog.stop(); return; }
+  recog = new SR(); recog.lang='en-US'; recog.continuous=false;
+  recog.onresult = e=>{
+    document.getElementById('chatIn').value = e.results[0][0].transcript;
+    endRec(); send();
+  };
+  recog.onerror = ()=>endRec();
+  recog.onend   = ()=>endRec();
+  recog.start();
+  isRec=true;
+  document.getElementById('btnVoice').classList.add('rec');
+  document.getElementById('vstatus').style.display='block';
+}
+
+function endRec(){
+  isRec=false;
+  if(recog) try{ recog.stop(); }catch(e){}
+  document.getElementById('btnVoice').classList.remove('rec');
+  document.getElementById('vstatus').style.display='none';
+}
+
+// ══════════════════════════════════════════════════
+//  TTS OUTPUT (browser Web Speech for chat preview)
+// ══════════════════════════════════════════════════
+function speakText(text){
+  if(!document.getElementById('togNar').checked) return;
+  if(!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate=0.88; u.pitch=1.0;
+  const voices = window.speechSynthesis.getVoices();
+  const pick = voices.find(v=>v.name.includes('Daniel')||v.name.includes('Alex')||v.lang==='en-US');
+  if(pick) u.voice=pick;
+  window.speechSynthesis.speak(u);
+}
+
+function loadVoices(){
+  if(window.speechSynthesis){
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged=()=>window.speechSynthesis.getVoices();
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  COPY & UTILS
+// ══════════════════════════════════════════════════
+function copyCmd(){
+  const t = document.getElementById('fcmd').textContent;
+  navigator.clipboard.writeText(t).then(()=>{
+    const b = event.target; b.textContent='✓ Copied';
+    setTimeout(()=>b.textContent='📋 Copy', 1500);
+  });
+}
+
+function setDot(id, cls){
+  const d = document.getElementById(id);
+  d.className = 'dot ' + cls;
+}
+
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ══════════════════════════════════════════════════
+//  SHOWCASE MODE
+// ══════════════════════════════════════════════════
+async function showcaseStart(){
+  const voice  = document.getElementById('scVoice').value;
+  const pyro   = document.getElementById('scPyro').checked;
+  const no_arm = document.getElementById('scNoArm').checked;
+  try{
+    const r = await fetch('/api/showcase/start',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({voice, pyro, no_arm})
+    });
+    const d = await r.json();
+    if(d.ok) await fetchStatus();
+  }catch(e){ console.error('Showcase start failed', e); }
+}
+
+async function showcaseStop(){
+  try{
+    await fetch('/api/showcase/stop',{method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    await fetchStatus();
+  }catch(e){ console.error('Showcase stop failed', e); }
+}
+</script>
+</body>
+</html>

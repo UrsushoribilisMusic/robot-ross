@@ -44,3 +44,14 @@ on a 10×10 Wall of Fame — drawn live on YouTube, artwork shipped to buyers.
 - Artist-side fix was implemented and merged by Claude:
   - route prompt-like `type=svg` to `sketch --direct`
   - send `proofOfWorkUrl` in completion payload.
+
+## Session Checkpoint (February 27, 2026)
+
+- Public dashboard at `https://api.robotross.art/` now shows the order prompt text in the pipeline.
+- UI behavior:
+  - desktop: explicit `Prompt` column
+  - mobile: prompt preview inline under `Type`
+  - full prompt available via hover tooltip
+- Dashboard client now HTML-escapes user-provided prompt/buyer/origin values before rendering.
+- Deployment source of truth for this UI is:
+  - [dashboard.html](/Users/miguelrodriguez/salesman-cloud-infra/opt/salesman-api/dashboard.html)

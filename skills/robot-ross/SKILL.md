@@ -16,15 +16,15 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 /usr/bin/python3 bob_ross.py write "Hello\nWorld" --size 15
 ```
 
-### AI sketch (preview → approve/cancel)
+### Quick Draw sketch (preview → approve/cancel)
 ```bash
 /usr/bin/python3 bob_ross.py sketch "a cat sitting on a fence"
-# → Claude Haiku generates SVG, sends PNG preview to Telegram, waits for "draw" or "cancel"
+# → sends PNG preview to Telegram, waits for "draw" or "cancel"
 /usr/bin/python3 bob_ross.py approve
 /usr/bin/python3 bob_ross.py cancel
 ```
 
-### AI sketch — direct (no preview, for orders)
+### Quick Draw sketch — direct (no preview, for orders)
 ```bash
 /usr/bin/python3 bob_ross.py sketch "a lighthouse" --direct --buyer "Alice"
 ```
@@ -44,16 +44,16 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 /usr/bin/python3 bob_ross.py image ~/.openclaw/media/inbound/photo.jpg
 ```
 
+### Pyrography (wood burning)
+```bash
+/usr/bin/python3 bob_ross.py write "Robot Ross" --pyro
+/usr/bin/python3 bob_ross.py svg pattern.svg --pyro --feed 45
+```
+
 ### Shapes
 ```bash
 /usr/bin/python3 bob_ross.py draw circle
 /usr/bin/python3 bob_ross.py draw square
-```
-
-### Wall snapshot (after pinning artwork to the wall)
-```bash
-/usr/bin/python3 wall_snapshot.py
-# Captures board camera via OBS → pushes to api.robotross.art/wall
 ```
 
 ### System
@@ -66,20 +66,21 @@ The robot arm draws on paper while narrating poetically in Bob Ross style. Every
 - `--buyer "Name"` — personalises Apertus narration ("Good morning, Alice...")
 - `--direct` — sketch only: skips Telegram preview, draws immediately
 - `--no-voice` — silent draw (no narration)
-- `--size N` — override size in mm
+- `--no-obs` â€” skip OBS recording (e.g. for testing)- `--size N` — override size in mm
+- `--feed N` — override feed rate in mm/min (e.g. 60 for pyro, 400 for pen)
+- `--pyro` — pyrography mode: slow feed for wood burning
 
 ## Job lifecycle (automatic)
 1. Readiness check (arm + calibration + Ollama)
 2. Job lock acquired (`/tmp/robot_ross_running.lock`)
 3. OBS recording starts (Workspace → Artist scene)
 4. caffeinate prevents Mac sleep
-5. Apertus generates narration (uses actual sketch prompt for richer commentary)
+5. Apertus generates narration
 6. Warning beeps — stand clear
-7. Crop corner marks + R.R signature injected into SVG
-8. Arm draws + live commentary in parallel
-9. OBS stops, recording saved to `~/Movies/`
-10. Order ledger updated (orders.xlsx)
-11. Lock released
+7. Arm draws + live commentary in parallel
+8. OBS stops, recording saved to `~/Movies/`
+9. Order ledger updated (orders.xlsx)
+10. Lock released
 
 ## Stop the arm
 Send `SIGTERM` to the process, or use the Stop Robot Ross desktop shortcut.
@@ -90,5 +91,3 @@ The arm lifts the pen and halts safely.
 - Delete `/tmp/robot_ross_running.lock` manually if the process crashed
 - OBS must be running for recording to work (job proceeds either way)
 - Port override: `HUENIT_PORT=/dev/cu.usbserial-XXX python3 bob_ross.py ...`
-- All SVG drawings include crop corner marks (⌐ top-right, └ bottom-left) and R.R signature
-- Crop config for wall snapshot: `wall_config.json` → `{"crop": [left, top, right, bottom]}`

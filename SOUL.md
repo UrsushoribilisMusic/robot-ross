@@ -186,3 +186,15 @@ DONE #<id> | status: failed | error: arm subprocess error
   - order reaches `complete`
   - `shopifySync.status=ok`
   - metafield key is `custom.proof_of_work`.
+
+## Session Checkpoint (February 27, 2026)
+
+- Production dashboard UI on `https://api.robotross.art/` was updated in `salesman-cloud-infra`.
+- The order pipeline table now exposes the customer prompt text:
+  - desktop: dedicated `Prompt` column
+  - mobile: compact prompt preview under `Type`
+  - hover on `Type`: full prompt in tooltip
+- Dashboard rendering now escapes prompt/buyer/origin text before inserting HTML.
+- Change was committed and pushed to `salesman-cloud-infra`:
+  - commit `aba1b83`
+  - message: `Dashboard: show prompt text in order pipeline`
