@@ -211,6 +211,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Unknown action"}, 400)
             return
 
+        if sys.platform != "darwin" and "--no-obs" not in args:
+            args = args + ["--no-obs"]
         cmd = [sys.executable, BOB_ROSS] + args
         env  = {**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")}
 
