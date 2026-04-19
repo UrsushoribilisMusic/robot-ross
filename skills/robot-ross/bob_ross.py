@@ -163,7 +163,11 @@ def warning_tone():
     """Play 3 beeps to warn humans near the arm."""
     for _ in range(3):
         if stop_flag.is_set(): break
-        subprocess.run(["afplay", "/System/Library/Sounds/Ping.aiff"], capture_output=True)
+        if sys.platform == "darwin":
+            subprocess.run(["afplay", "/System/Library/Sounds/Ping.aiff"], capture_output=True)
+        elif sys.platform == "win32":
+            import winsound
+            winsound.Beep(1000, 200)
         time.sleep(0.4)
 
 
