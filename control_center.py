@@ -133,6 +133,10 @@ class Handler(BaseHTTPRequestHandler):
             self._post_execute(data)
         elif path == "/api/chat":
             self._post_chat(data)
+        elif path == "/api/sketch-preview":
+            self._post_sketch_preview(data)
+        elif path == "/api/calibrate":
+            self._post_calibrate()
         elif path == "/api/approve":
             self._run_simple(["approve"])
         elif path == "/api/cancel":
@@ -238,6 +242,53 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_json({"ok": True, "command": " ".join(args)})
 
+    def _post_sketch_preview(self, data):
+        prompt = data.get("prompt", "").strip()
+        if not prompt:
+            self._send_json({"error": "No prompt"}, 400)
+            return
+        try:
+            if os.path.exists(PENDING_STATE):
+                os.unlink(PENDING_STATE)
+        except Exception:
+            pass
+
+        def _generate():
+            import tempfile
+            svg_path = os.path.join(tempfile.gettempdir(), "ai_sketch.svg")
+            ai_sketch = os.path.join(HUENIT_DIR, "ai_sketch.py")
+            try:
+                subprocess.run([sys.executable, ai_sketch, prompt, "--out", svg_path], timeout=60)
+                if os.path.exists(svg_path):
+                    with open(PENDING_STATE, "w") as f:
+                        json.dump({"svg_path": svg_path, "prompt": prompt}, f)
+                    print(f"[sketch-preview] SVG ready: {svg_path}", flush=True)
+                else:
+                    print("[sketch-preview] ai_sketch.py produced no SVG", flush=True)
+            except Exception as e:
+                print(f"[sketch-preview] Error: {e}", flush=True)
+
+        threading.Thread(target=_generate, daemon=True).start()
+        self._send_json({"ok": True, "msg": "Generating sketch…"})
+
+    def _post_calibrate(self):
+        try:
+            env = {**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")}
+            bat = os.path.normpath(os.path.join(SCRIPT_DIR, "calibrate.bat"))
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    ['cmd', '/k', bat],
+                    cwd=SCRIPT_DIR, env=env,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+            else:
+                subprocess.Popen(["open", "-a", "Terminal", "--args", "bash", "-c",
+                                   f'"{sys.executable}" "{BOB_ROSS}" calibrate'],
+                                 cwd=SCRIPT_DIR, env=env)
+        except Exception as e:
+            print(f"[Calibrate] Error: {e}", flush=True)
+        self._send_json({"ok": True, "msg": "Calibration window opened"})
+
     def _run_simple(self, args):
         cmd = [sys.executable, BOB_ROSS] + args
         subprocess.Popen(cmd, cwd=SCRIPT_DIR,
@@ -334,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
             req = urllib.request.Request(
                 OLLAMA_URL, data=payload,
                 headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urllib.request.urlopen(req, timeout=120) as r:
                 result = json.loads(r.read())
                 return result.get("response", random.choice(FALLBACK_RESPONSES))
         except Exception:
@@ -343,8 +394,16 @@ class Handler(BaseHTTPRequestHandler):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+class _QuietServer(HTTPServer):
+    def handle_error(self, request, client_address):
+        import traceback
+        exc = traceback.format_exc()
+        if "ConnectionAbortedError" in exc or "BrokenPipeError" in exc:
+            return  # browser closed connection early — harmless
+        super().handle_error(request, client_address)
+
 def main():
-    server = HTTPServer(("localhost", PORT), Handler)
+    server = _QuietServer(("localhost", PORT), Handler)
     banner = f"""
 ========================================
   Robot Ross Control Center

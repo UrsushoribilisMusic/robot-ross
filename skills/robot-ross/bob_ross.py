@@ -193,7 +193,11 @@ def generate_narration(action, content, buyer=None):
     elif action == "image":
         action_desc = "draw a vector illustration from a photo"
     elif action == "svg":
-        action_desc = "draw a vector illustration"
+        if os.sep in speakable or speakable.endswith(".svg"):
+            name = os.path.splitext(os.path.basename(speakable))[0]
+            action_desc = f"sketch a {name}" if name else "draw a vector illustration"
+        else:
+            action_desc = f"sketch {speakable}"
     elif action == "pyro":
         action_desc = f"burn a wood pyrography of '{speakable}'"
     elif action == "fetch":
@@ -206,7 +210,7 @@ def generate_narration(action, content, buyer=None):
         f"A request has come in to {action_desc}.{buyer_line}\n\n"
         "Generate narration as a JSON object with exactly these keys:\n"
         '- "intro": 1-2 warm sentences welcoming the request. Start with "We got a lovely request..."\n'
-        '- "commentary": a list of 5 short, poetic phrases to say WHILE drawing.\n'
+        '- "commentary": a list of 10 short, poetic phrases to say WHILE drawing.\n'
         '- "outro": 1-2 warm sentences for when the drawing is done.\n\n'
         "Respond with ONLY the JSON object. No explanation, no markdown."
     )
@@ -222,11 +226,13 @@ def generate_narration(action, content, buyer=None):
 
 
 def run_commentary(phrases, done_event):
-    """Speak commentary phrases at intervals until the drawing is done."""
-    for p in phrases:
-        if done_event.is_set() or stop_flag.is_set(): break
-        speak(p)
-        # Sleep in small increments to remain responsive to done_event
+    """Speak commentary phrases in a loop until the drawing is done."""
+    if not phrases:
+        return
+    idx = 0
+    while not done_event.is_set() and not stop_flag.is_set():
+        speak(phrases[idx % len(phrases)])
+        idx += 1
         for _ in range(COMMENTARY_INTERVAL * 10):
             if done_event.is_set() or stop_flag.is_set(): break
             time.sleep(0.1)
@@ -281,7 +287,8 @@ def main():
     parser.add_argument("--no-voice", action="store_true")
     parser.add_argument("--no-obs", action="store_true")
     parser.add_argument("--direct", action="store_true")
-    parser.add_argument("--buyer",  default=None)
+    parser.add_argument("--buyer",   default=None)
+    parser.add_argument("--subject", default=None, help="Human-readable subject for narration")
     args = parser.parse_args()
     global _tts_engine
     _tts_engine = args.engine
@@ -318,8 +325,10 @@ def main():
         if not os.path.exists(svg_path):
             log("SKETCH ERROR", "ai_sketch.py did not produce an SVG — aborting")
             sys.exit(1)
+        sketch_subject = args.content
         args.action = "svg"
         args.content = svg_path
+        args._sketch_subject = sketch_subject
 
     # Write wrap
     if args.action == "write" and args.content:
@@ -345,7 +354,8 @@ def main():
 
         # Narration
         narration_action = "pyro" if args.pyro else args.action
-        narration = generate_narration(narration_action, args.content, buyer=args.buyer) if not args.no_voice else {"intro":"", "commentary":[], "outro":""}
+        narration_content = args.subject or getattr(args, "_sketch_subject", None) or args.content
+        narration = generate_narration(narration_action, narration_content, buyer=args.buyer) if not args.no_voice else {"intro":"", "commentary":[], "outro":""}
 
         warning_tone()
         beep_end = time.time()
