@@ -23,8 +23,25 @@ BOB_ROSS    = os.path.join(SCRIPT_DIR, "skills", "robot-ross", "bob_ross.py")
 CHAT_ROSS   = os.path.join(SCRIPT_DIR, "skills", "robot-ross", "chat_ross.py")
 CAL_FILE      = os.path.join(HUENIT_DIR, "calibration.json")
 PENDING_STATE = os.path.join(tempfile.gettempdir(), "robot_ross_pending.json")
+SKETCH_STATUS = os.path.join(tempfile.gettempdir(), "robot_ross_sketch_status.json")
 OLLAMA_URL  = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "MichelRosselli/apertus:8b-instruct-2509-q4_k_m"
+
+
+SKETCH_BRAIN = "mistral"  # brain ai_sketch.py generates with — keep in sync with its own --brain default
+SKETCH_TIMEOUT = 130  # ai_sketch.py's own Ollama call times out at 120s; give it a little headroom
+
+def _write_sketch_status(status, message=None, prompt=None, brain=None):
+    """Persist sketch-preview progress so the UI can show real status instead of spinning forever."""
+    try:
+        data = {"status": status}
+        if message is not None: data["message"] = message
+        if prompt is not None: data["prompt"] = prompt
+        if brain is not None: data["brain"] = brain
+        with open(SKETCH_STATUS, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
 FALLBACK_RESPONSES = [
     "Oh, what a wonderful idea! You know, every drawing starts with a vision. "
@@ -39,8 +56,11 @@ FALLBACK_RESPONSES = [
 
 job_lock = threading.Lock()
 running_job = None
+running_proc = None   # the bob_ross.py Popen object for the current job
 showcase_lock = threading.Lock()
 showcase_proc = None
+
+JOB_LOCK_PATH = os.path.join("C:\\", "tmp", "robot_ross_running.lock")
 
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
@@ -104,6 +124,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/pending":
             self._get_pending()
 
+        elif path == "/api/sketch-status":
+            self._get_sketch_status()
+
         elif path == "/pending-svg":
             self._get_pending_svg()
 
@@ -140,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/approve":
             self._run_simple(["approve"])
         elif path == "/api/cancel":
-            self._run_simple(["cancel"])
+            self._post_cancel()
         elif path == "/api/showcase/start":
             self._post_showcase_start(data)
         elif path == "/api/showcase/stop":
@@ -177,6 +200,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception:
             self.send_error(500)
+
+    def _get_sketch_status(self):
+        """Live progress for the current/last sketch-preview generation (generating/ready/error)."""
+        if not os.path.exists(SKETCH_STATUS):
+            self._send_json({"status": "idle"})
+            return
+        try:
+            with open(SKETCH_STATUS) as f:
+                self._send_json(json.load(f))
+        except Exception:
+            self._send_json({"status": "idle"})
 
     def _get_status(self):
         import tempfile
@@ -228,13 +262,17 @@ class Handler(BaseHTTPRequestHandler):
         print(f"{'='*52}\n", flush=True)
 
         def _run():
-            global running_job
+            global running_job, running_proc
             try:
-                subprocess.run(cmd, cwd=SCRIPT_DIR, env=env)
+                proc = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=env)
+                with job_lock:
+                    running_proc = proc
+                proc.wait()
                 print(f"\n[Control Center] Job finished.\n", flush=True)
             finally:
                 with job_lock:
                     running_job = None
+                    running_proc = None
 
         with job_lock:
             running_job = threading.Thread(target=_run, daemon=True)
@@ -252,20 +290,31 @@ class Handler(BaseHTTPRequestHandler):
                 os.unlink(PENDING_STATE)
         except Exception:
             pass
+        _write_sketch_status("generating", prompt=prompt, brain=SKETCH_BRAIN)
 
         def _generate():
-            import tempfile
             svg_path = os.path.join(tempfile.gettempdir(), "ai_sketch.svg")
             ai_sketch = os.path.join(HUENIT_DIR, "ai_sketch.py")
             try:
-                subprocess.run([sys.executable, ai_sketch, prompt, "--out", svg_path], timeout=60)
-                if os.path.exists(svg_path):
+                result = subprocess.run(
+                    [sys.executable, ai_sketch, prompt, "--out", svg_path, "--brain", SKETCH_BRAIN],
+                    timeout=SKETCH_TIMEOUT, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
+                )
+                if result.returncode == 0 and os.path.exists(svg_path):
                     with open(PENDING_STATE, "w") as f:
                         json.dump({"svg_path": svg_path, "prompt": prompt}, f)
+                    _write_sketch_status("ready", prompt=prompt, brain=SKETCH_BRAIN)
                     print(f"[sketch-preview] SVG ready: {svg_path}", flush=True)
                 else:
-                    print("[sketch-preview] ai_sketch.py produced no SVG", flush=True)
+                    err = (result.stderr or result.stdout or "ai_sketch.py produced no SVG").strip()
+                    _write_sketch_status("error", message=err[-400:], prompt=prompt, brain=SKETCH_BRAIN)
+                    print(f"[sketch-preview] ai_sketch.py failed: {err}", flush=True)
+            except subprocess.TimeoutExpired:
+                _write_sketch_status("error", message=f"Timed out after {SKETCH_TIMEOUT}s — the model didn't respond in time.", prompt=prompt, brain=SKETCH_BRAIN)
+                print(f"[sketch-preview] Timed out after {SKETCH_TIMEOUT}s", flush=True)
             except Exception as e:
+                _write_sketch_status("error", message=str(e), prompt=prompt, brain=SKETCH_BRAIN)
                 print(f"[sketch-preview] Error: {e}", flush=True)
 
         threading.Thread(target=_generate, daemon=True).start()
@@ -288,6 +337,28 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"[Calibrate] Error: {e}", flush=True)
         self._send_json({"ok": True, "msg": "Calibration window opened"})
+
+    def _post_cancel(self):
+        global running_proc
+        killed = False
+        with job_lock:
+            proc = running_proc
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                try: proc.wait(timeout=3)
+                except subprocess.TimeoutExpired: proc.kill()
+                killed = True
+                print("\n[Control Center] Job cancelled by user.\n", flush=True)
+            except Exception as e:
+                print(f"[Cancel] Error: {e}", flush=True)
+        # Clean up stale lock file
+        try:
+            if os.path.exists(JOB_LOCK_PATH):
+                os.remove(JOB_LOCK_PATH)
+        except Exception:
+            pass
+        self._send_json({"ok": True, "killed": killed})
 
     def _run_simple(self, args):
         cmd = [sys.executable, BOB_ROSS] + args

@@ -285,8 +285,8 @@ footer{
   <div class="cg">
     <div class="cl">🔊 TTS Engine</div>
     <select id="selTts" onchange="upd()">
+      <option value="voxtral" selected>Voxtral</option>
       <option value="kokoro">Kokoro (Neural)</option>
-      <option value="voxtral">Voxtral</option>
       <option value="system">System TTS</option>
     </select>
   </div>
@@ -335,8 +335,6 @@ footer{
     <button class="tab" onclick="setMode('draw',this)">⬡ Draw</button>
     <button class="tab" onclick="setMode('svg',this)">📐 SVG</button>
     <button class="tab" onclick="setMode('sketch',this)">🎨 Sketch</button>
-    <button class="tab" onclick="setMode('image',this)">🖼️ Image</button>
-    <button class="tab" onclick="setMode('fetch',this)">🌐 Fetch</button>
   </div>
 
   <!-- Write -->
@@ -344,6 +342,7 @@ footer{
     <div class="cl">Text to write</div>
     <textarea id="inpWrite" placeholder="Enter text for the arm to write…" oninput="upd()" rows="3"></textarea>
     <div style="font-size:10px;color:var(--muted);margin-top:4px">Max 255 chars · auto-wraps at ~35 chars/line</div>
+    <button class="bp bsm" style="margin-top:8px" onclick="execute()">✏️ Write</button>
   </div>
 
   <!-- Draw -->
@@ -369,21 +368,8 @@ footer{
   <div class="ms" id="ms-sketch">
     <div class="cl">Sketch prompt (AI-generated SVG)</div>
     <textarea id="inpSketch" placeholder="e.g. a happy little tree beside a lake" oninput="upd()" rows="3"></textarea>
-    <div style="font-size:10px;color:var(--muted);margin-top:4px">Apertus → pen-plotter SVG (10–40 elements)</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Mistral → pen-plotter SVG (10–40 elements)</div>
     <button class="bs bsm" style="margin-top:8px" onclick="previewSketch()">🔍 Preview</button>
-  </div>
-
-  <!-- Image -->
-  <div class="ms" id="ms-image">
-    <div class="cl">Image file path</div>
-    <input type="text" id="inpImage" placeholder="e.g. photo.jpg" oninput="upd()">
-    <div style="font-size:10px;color:var(--muted);margin-top:4px">Photo → vtracer → SVG → preview → approve</div>
-  </div>
-
-  <!-- Fetch -->
-  <div class="ms" id="ms-fetch">
-    <div class="cl">SVG URL</div>
-    <input type="text" id="inpFetch" placeholder="https://example.com/design.svg" oninput="upd()">
   </div>
 
   <div class="div"></div>
@@ -461,15 +447,8 @@ footer{
   <!-- ── Showcase Mode ── -->
   <div class="cl" style="margin-bottom:10px">🎤 Showcase Mode</div>
   <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
-    Full voice loop: Whisper STT → Apertus brain → Voxtral TTS → arm draws.
+    Full voice loop: Whisper STT → Mistral brain → TTS (see 🔊 TTS Engine above) → arm draws.
     Robot Ross greets visitors and responds to spoken requests.
-  </div>
-  <div style="margin-bottom:8px">
-    <label class="cl" style="margin-bottom:5px">Voice</label>
-    <select id="scVoice" style="width:100%">
-      <option value="voxtral" selected>Voxtral (Mistral — default)</option>
-      <option value="kokoro">Kokoro (local neural)</option>
-    </select>
   </div>
   <div style="margin-bottom:8px">
     <label class="tw"><input type="checkbox" id="scPyro"> <span class="tl">Pyrography mode</span></label>
@@ -622,6 +601,7 @@ function buildArgs(){
   const nar   = document.getElementById('togNar').checked;
   const buyer = document.getElementById('inpBuyer').value.trim();
   const dir   = document.getElementById('togDir').checked;
+  const tts   = document.getElementById('selTts').value;
   let   args  = [];
 
   switch(mode){
@@ -641,21 +621,12 @@ function buildArgs(){
       args = ['sketch', p, '--size', size];
       break;
     }
-    case 'image':{
-      const i = document.getElementById('inpImage').value.trim() || 'photo.jpg';
-      args = ['image', i, '--size', size];
-      break;
-    }
-    case 'fetch':{
-      const u = document.getElementById('inpFetch').value.trim() || 'https://example.com/design.svg';
-      args = ['fetch', u, '--size', size];
-      break;
-    }
   }
   if(!cam) args.push('--no-obs');
   if(!nar) args.push('--no-voice');
   if(buyer){ args.push('--buyer'); args.push(buyer); }
   if(dir)  args.push('--direct');
+  args.push('--engine', tts);
   return args;
 }
 
@@ -688,7 +659,7 @@ function setMode(m, btn){
   });
   document.querySelectorAll('.ms').forEach(s=>s.classList.remove('on'));
   document.getElementById('ms-'+m).classList.add('on');
-  const showPv = ['svg','sketch','image'].includes(m);
+  const showPv = ['svg','sketch'].includes(m);
   document.getElementById('pvArea').style.display = showPv ? 'block':'none';
   if(m!=='svg'){ selSvg=null; document.querySelectorAll('.svgi').forEach(i=>i.classList.remove('on')); }
   if(m==='svg'){ fetchSvgs(); }
@@ -748,7 +719,7 @@ async function previewSketch(){
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({prompt})
   });
-  startPendingPoll();
+  startPendingPoll(true);
 }
 
 function doCancel(){
@@ -780,7 +751,7 @@ async function runConfirmedCommand(args){
   const res = await postExecute(args);
   if(res.error){ addMsg('ross',`⚠️ Error: ${res.error}`); return; }
   // For sketch/image: show preview area and start polling for the generated SVG
-  if(args[0] === 'sketch' || args[0] === 'image'){
+  if(args[0] === 'sketch'){
     setMode(args[0]);
     document.getElementById('pvArea').style.display = 'block';
     document.getElementById('pvWait').style.display = 'block';
@@ -792,10 +763,27 @@ async function runConfirmedCommand(args){
 
 let _pollTimer = null;
 
-function startPendingPoll(){
+function startPendingPoll(checkSketchStatus){
   if(_pollTimer) clearInterval(_pollTimer);
   _pollTimer = setInterval(async ()=>{
     try{
+      if(checkSketchStatus){
+        const sr = await fetch('/api/sketch-status');
+        const sd = await sr.json();
+        if(sd.status === 'generating'){
+          const brainLabel = {mistral:'Mistral', apertus:'Apertus', haiku:'Claude Haiku'}[sd.brain] || sd.brain || 'the model';
+          document.getElementById('pvBox').innerHTML =
+            `<div class="pvph"><span class="spin2">⬤</span> Generating sketch… asking ${brainLabel} for a design</div>`;
+        } else if(sd.status === 'error'){
+          clearInterval(_pollTimer); _pollTimer = null;
+          document.getElementById('pvWait').style.display = 'none';
+          const msg = (sd.message || 'Unknown error').replace(/</g,'&lt;');
+          document.getElementById('pvBox').innerHTML =
+            `<div class="pvph">⚠️ Sketch generation failed<br><small>${msg}</small></div>`;
+          addMsg('ross', `⚠️ That sketch didn't come together: ${sd.message||'unknown error'}. Want to try again?`);
+          return;
+        }
+      }
       const r = await fetch('/api/pending');
       const d = await r.json();
       if(d.pending && d.svg_path){
@@ -818,7 +806,12 @@ function startPendingPoll(){
   }, 2000);
   // Stop polling after 3 minutes (sketch should never take that long)
   setTimeout(()=>{ if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null;
-    document.getElementById('pvWait').style.display='none'; } }, 180000);
+    document.getElementById('pvWait').style.display='none';
+    if(checkSketchStatus){
+      document.getElementById('pvBox').innerHTML =
+        '<div class="pvph">⚠️ Timed out waiting for the sketch<br><small>No response after 3 minutes</small></div>';
+    }
+  } }, 180000);
 }
 
 // ══════════════════════════════════════════════════
@@ -949,10 +942,12 @@ function buildArgsFromHint(cmd, arg){
   const buyer = document.getElementById('inpBuyer').value.trim();
   const cam = document.getElementById('togCam').checked;
   const nar = document.getElementById('togNar').checked;
+  const tts = document.getElementById('selTts').value;
   let args = [cmd, arg, '--size', size];
   if(!cam) args.push('--no-obs');
   if(!nar) args.push('--no-voice');
   if(buyer){ args.push('--buyer'); args.push(buyer); }
+  args.push('--engine', tts);
   return args;
 }
 
@@ -1040,7 +1035,7 @@ function escHtml(s){
 //  SHOWCASE MODE
 // ══════════════════════════════════════════════════
 async function showcaseStart(){
-  const voice  = document.getElementById('scVoice').value;
+  const voice  = document.getElementById('selTts').value;
   const pyro   = document.getElementById('scPyro').checked;
   const no_arm = document.getElementById('scNoArm').checked;
   try{

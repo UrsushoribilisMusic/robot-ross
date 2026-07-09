@@ -521,7 +521,7 @@ def main():
 
             if i < len(lines) - 1:
                 dy = -(effective_size * args.line_spacing)
-                dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
+                dz = TILT_SLOPE * dy  # pure Y move, no X displacement — no tilt-X term
                 z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
                 g.send(f"G1 Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
                 g.wait_motion()
@@ -530,7 +530,7 @@ def main():
         # Return to original Y position
         if total_y_moved > 0:
             dy = total_y_moved
-            dz = TILT_SLOPE * dy + TILT_SLOPE_X * dx
+            dz = TILT_SLOPE * dy  # pure Y move, no X displacement — no tilt-X term
             z_comp = f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
             g.send(f"G1 Y{dy:.3f}{z_comp} F{TRAVEL_FEED}", wait_ok=True)
             g.wait_motion()

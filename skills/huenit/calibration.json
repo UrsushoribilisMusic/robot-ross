@@ -1,5 +1,6 @@
 {
   "z_up": 6.0,
   "tilt_slope": 0.0,
-  "note": "z_up = pen travel height mm; tilt_slope = Z mm per Y mm"
+  "tilt_slope_x": 0.0,
+  "note": "z_up = pen travel height mm; tilt_slope = Z mm per Y mm; tilt_slope_x = Z mm per X mm"
 }

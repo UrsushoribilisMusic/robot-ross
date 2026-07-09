@@ -2,11 +2,14 @@
 """
 ai_sketch.py
 ------------
-Generate a pen-plotter-friendly SVG from a text prompt using Claude Haiku.
+Generate a pen-plotter-friendly SVG from a text prompt.
+Defaults to a local Mistral model via Ollama; Claude Haiku (cloud) and
+Apertus (Ollama) are available as alternates via --brain.
 
 Usage:
     python3 ai_sketch.py "a happy little bird" --out /tmp/ai_sketch.svg
     python3 ai_sketch.py "a globe" --out /tmp/ai_sketch.svg --png-out /tmp/preview.png
+    python3 ai_sketch.py "a globe" --brain haiku --out /tmp/ai_sketch.svg
 
 Interface is drop-in compatible with quickdraw_compose.py.
 """
@@ -26,6 +29,12 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 CREDENTIALS_FILE = os.path.expanduser("~/.openclaw/credentials/anthropic.json")
+
+OLLAMA_URL    = "http://localhost:11434/api/generate"
+OLLAMA_MODELS = {
+    "mistral": "ministral-3:8b",
+    "apertus": "MichelRosselli/apertus:8b-instruct-2509-q4_k_m",
+}
 
 SYSTEM_PROMPT = """\
 You are a pen plotter artist. Generate SVG drawings optimised for a physical pen plotter.
@@ -62,8 +71,58 @@ def _load_api_key() -> str:
     )
 
 
-def generate_svg(prompt: str) -> tuple:
-    """Returns (svg_str, usage_dict)."""
+def _extract_svg(text: str) -> str:
+    """Strip markdown fences / surrounding chatter and return the raw <svg>...</svg> block."""
+    svg = text.strip()
+    # Strip markdown fences (model often wraps in ```svg or ```xml despite instructions)
+    svg = re.sub(r"^```[a-zA-Z]*\n?", "", svg)
+    svg = re.sub(r"\n?```$", "", svg).strip()
+    # Extract just the <svg>...</svg> block in case there's surrounding text
+    match = re.search(r"(<svg[\s\S]*?</svg>)", svg, re.IGNORECASE)
+    if match:
+        svg = match.group(1)
+    if not svg.startswith("<svg"):
+        raise ValueError(f"Response does not look like SVG:\n{svg[:200]}")
+    return _ensure_stroke_style(svg)
+
+
+def _ensure_stroke_style(svg: str) -> str:
+    """
+    Wrap the SVG body in a stroke-only <g>, in case the model forgot the
+    fill="none" stroke="black" pen-plotter styling. Harmless if already
+    present — per-element attributes override the group default.
+    """
+    match = re.match(r"(<svg[^>]*>)([\s\S]*)(</svg>)\s*$", svg, re.IGNORECASE)
+    if not match:
+        return svg
+    open_tag, body, close_tag = match.groups()
+    return f'{open_tag}\n  <g fill="none" stroke="black" stroke-width="1.5">\n{body}\n  </g>\n{close_tag}'
+
+
+def generate_svg_ollama(prompt: str, brain: str = "mistral") -> tuple:
+    """Returns (svg_str, usage_dict) using a local Ollama model (Mistral by default)."""
+    payload = json.dumps({
+        "model": OLLAMA_MODELS[brain],
+        "system": SYSTEM_PROMPT,
+        "prompt": f"Draw: {prompt}",
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(
+        OLLAMA_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read())
+    svg = _extract_svg(result.get("response", ""))
+    usage = {
+        "input_tokens": result.get("prompt_eval_count", 0),
+        "output_tokens": result.get("eval_count", 0),
+    }
+    return svg, usage
+
+
+def generate_svg_haiku(prompt: str) -> tuple:
+    """Returns (svg_str, usage_dict) using Claude Haiku (cloud)."""
     api_key = _load_api_key()
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
@@ -85,18 +144,15 @@ def generate_svg(prompt: str) -> tuple:
         result = json.load(resp)
 
     usage = result.get("usage", {})
-
-    svg = result["content"][0]["text"].strip()
-    # Strip markdown fences (model often wraps in ```svg or ```xml despite instructions)
-    svg = re.sub(r"^```[a-zA-Z]*\n?", "", svg)
-    svg = re.sub(r"\n?```$", "", svg).strip()
-    # Extract just the <svg>...</svg> block in case there's surrounding text
-    match = re.search(r"(<svg[\s\S]*?</svg>)", svg, re.IGNORECASE)
-    if match:
-        svg = match.group(1)
-    if not svg.startswith("<svg"):
-        raise ValueError(f"Response does not look like SVG:\n{svg[:200]}")
+    svg = _extract_svg(result["content"][0]["text"].strip())
     return svg, usage
+
+
+def generate_svg(prompt: str, brain: str = "mistral") -> tuple:
+    """Returns (svg_str, usage_dict). brain: mistral|apertus (local Ollama) or haiku (cloud)."""
+    if brain == "haiku":
+        return generate_svg_haiku(prompt)
+    return generate_svg_ollama(prompt, brain)
 
 
 def svg_to_png(svg_path: str, png_path: str) -> bool:
@@ -119,16 +175,18 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate a pen-plotter SVG from a text prompt using Claude Haiku"
+        description="Generate a pen-plotter SVG from a text prompt"
     )
     parser.add_argument("prompt", help="Text description of what to draw")
     parser.add_argument("--out", default="/tmp/ai_sketch.svg", help="Output SVG path")
     parser.add_argument("--png-out", default=None, help="Optional PNG preview output path")
+    parser.add_argument("--brain", default="mistral", choices=["mistral", "apertus", "haiku"],
+                         help="Model to generate the SVG with")
     args = parser.parse_args()
 
-    print(f"  Generating AI sketch for: {args.prompt!r}")
+    print(f"  Generating AI sketch for: {args.prompt!r} (brain={args.brain})")
     try:
-        svg, usage = generate_svg(args.prompt)
+        svg, usage = generate_svg(args.prompt, brain=args.brain)
     except Exception as e:
         print(f"  ❌ AI sketch generation failed: {e}", file=sys.stderr)
         sys.exit(1)

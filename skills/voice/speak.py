@@ -99,14 +99,16 @@ def _speak_fallback(text):
 VOXTRAL_VOICE = "fr_marie_neutral"
 VOXTRAL_MODEL = "voxtral-mini-tts-latest"
 
-# Whisper language name → Voxtral voice_id (female voices for consistent persona)
+# Whisper language name → Voxtral voice slug
+# Available voices: fr_marie_* (French), gb_jane_* (British EN), en_paul_* (US EN)
+# Voxtral is multilingual — fr_marie speaks German/Spanish/Italian natively
 VOXTRAL_LANG_VOICES = {
     "french":     "fr_marie_neutral",
-    "german":     "de_anna_neutral",
-    "spanish":    "es_lucia_neutral",
-    "english":    "en_emma_neutral",
-    "italian":    "it_giulia_neutral",
-    "portuguese": "pt_beatriz_neutral",
+    "german":     "fr_marie_neutral",   # fr_marie speaks German natively
+    "spanish":    "fr_marie_neutral",   # fr_marie speaks Spanish natively
+    "english":    "gb_jane_neutral",
+    "italian":    "fr_marie_neutral",   # fr_marie speaks Italian natively
+    "portuguese": "fr_marie_neutral",
 }
 
 
@@ -124,7 +126,13 @@ def _speak_voxtral(text, voice=None):
         print("  Voxtral: mistralai not installed — skipping", file=sys.stderr)
         return
     client = Mistral(api_key=api_key)
-    response = client.audio.speech.complete(
+    try:
+        speech = client.audio.speech
+    except AttributeError:
+        print("  Voxtral: audio.speech not available in this SDK version — falling back", file=sys.stderr)
+        _speak_fallback(text)
+        return
+    response = speech.complete(
         model=VOXTRAL_MODEL,
         input=text,
         voice_id=voice or VOXTRAL_VOICE,
