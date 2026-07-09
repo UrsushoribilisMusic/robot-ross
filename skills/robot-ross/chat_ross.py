@@ -3,7 +3,7 @@
 chat_ross.py â€” Robot Ross interactive showcase.
 
 Robot Ross greets visitors, listens to what they want, and draws on request.
-Uses Whisper (STT) â†’ Claude Haiku (brain) â†’ Kokoro/Voxtral (TTS) â†’ bob_ross sketch (arm).
+Uses Whisper (STT) â†’ Mistral/Ollama (brain, --brain apertus|haiku to switch) â†’ Kokoro/Voxtral (TTS) â†’ bob_ross sketch (arm).
 
 Usage:
     python chat_ross.py                        # full showcase, pen drawing
@@ -41,7 +41,7 @@ BOB_ROSS_PY    = os.path.join(SCRIPT_DIR, "bob_ross.py")
 OLLAMA_URL    = "http://localhost:11434/api/generate"
 OLLAMA_MODELS = {
     "apertus": "MichelRosselli/apertus:8b-instruct-2509-q4_k_m",
-    "mistral":  "mistral:latest",
+    "mistral":  "ministral-3:8b",
 }
 SVG_DIR        = os.path.dirname(SKILLS_DIR)  # SVGs in robot-ross root
 
@@ -141,14 +141,15 @@ def start_draw(subject, buyer=None, size=80, feed=None, pyro=False, no_obs=True,
 _tts_engine  = "voxtral"
 _tts_voice   = None   # None = auto-select voice per detected language
 
-# Whisper language name -> Voxtral voice (female for consistent persona)
+# Whisper language name -> Voxtral voice slug
+# fr_marie speaks DE/ES/IT natively (Voxtral is multilingual)
 _LANG_VOICE = {
     "french":     "fr_marie_neutral",
-    "german":     "de_anna_neutral",
-    "spanish":    "es_lucia_neutral",
-    "english":    "en_emma_neutral",
-    "italian":    "it_giulia_neutral",
-    "portuguese": "pt_beatriz_neutral",
+    "german":     "fr_marie_neutral",
+    "spanish":    "fr_marie_neutral",
+    "english":    "gb_jane_neutral",
+    "italian":    "fr_marie_neutral",
+    "portuguese": "fr_marie_neutral",
 }
 
 # Whisper language name -> label for system prompt
@@ -309,7 +310,7 @@ def main():
     parser.add_argument("--lang",      default=None,    help="Force STT language")
     parser.add_argument("--size",      type=float, default=80,  help="Drawing size mm")
     parser.add_argument("--feed",      type=float, default=None, help="Drawing feed rate mm/min")
-    parser.add_argument("--brain",     default="haiku",   choices=["haiku", "apertus", "mistral"], help="Conversation brain")
+    parser.add_argument("--brain",     default="mistral",   choices=["haiku", "apertus", "mistral"], help="Conversation brain")
     parser.add_argument("--pyro",      action="store_true", help="Pyrography mode")
     parser.add_argument("--no-arm",    action="store_true", help="No arm movement")
     parser.add_argument("--no-obs",    action="store_true", help="Skip OBS recording")

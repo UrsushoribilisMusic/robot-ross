@@ -35,7 +35,11 @@ VOICE_DIR   = os.path.join(SKILLS_DIR, "voice")
 
 # â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 OLLAMA_URL       = "http://localhost:11434/api/generate"
-OLLAMA_MODEL     = "MichelRosselli/apertus:8b-instruct-2509-q4_k_m"
+OLLAMA_MODELS    = {
+    "mistral": "ministral-3:8b",
+    "apertus": "MichelRosselli/apertus:8b-instruct-2509-q4_k_m",
+}
+OLLAMA_MODEL     = OLLAMA_MODELS["mistral"]  # default brain, overridden by --brain
 PORT             = os.environ.get("HUENIT_PORT", "/dev/cu.usbserial-310")
 CALIBRATION_FILE = os.path.join(HUENIT_DIR, "calibration.json")
 
@@ -183,8 +187,23 @@ def speak(text):
         log("SPEAK ERROR", str(e))
 
 
+def _generic_narration(speakable):
+    """Fast, non-LLM filler narration — used immediately while the real one generates in the background."""
+    return {
+        "intro": f"We got a lovely request for {speakable}. Let's get started right away!",
+        "commentary": [
+            "Just a happy little line here.",
+            "Every stroke has its own personality.",
+            "There are no mistakes, only happy accidents.",
+            "Let's build our confidence with this one.",
+            "Isn't it fantastic that you can create anything you want?",
+        ],
+        "outro": "There we go. All finished and ready for you.",
+    }
+
+
 def generate_narration(action, content, buyer=None):
-    """Ask Apertus to generate Bob Ross style narration."""
+    """Ask the local Ollama brain (Mistral by default, Apertus optional) to generate Bob Ross style narration."""
     buyer_line = f" The customer's name is {buyer}. Address them warmly by name in the intro." if buyer else ""
     speakable = content.replace('\\n', ' ').replace('\n', ' ').strip()
 
@@ -218,19 +237,28 @@ def generate_narration(action, content, buyer=None):
     payload = json.dumps({"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "format": "json"}).encode()
     try:
         req = urllib.request.Request(OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
             return json.loads(result["response"])
     except Exception:
-        return {"intro": f"We got a lovely request for {speakable}.", "commentary": ["Just a happy little line here.", "Every stroke has its own personality."], "outro": "There we go. All finished and ready for you."}
+        return _generic_narration(speakable)
 
 
-def run_commentary(phrases, done_event):
-    """Speak commentary phrases in a loop until the drawing is done."""
-    if not phrases:
-        return
+def run_commentary_dynamic(narration_result, done_event):
+    """
+    Speak generic filler commentary immediately; once the background LLM
+    narration finishes, switch to the real request-specific phrases.
+    """
+    phrases = _generic_narration("")["commentary"]
     idx = 0
+    switched = False
     while not done_event.is_set() and not stop_flag.is_set():
+        if not switched and narration_result.get("done"):
+            real = narration_result.get("data") or {}
+            if real.get("commentary"):
+                phrases = real["commentary"]
+                idx = 0
+            switched = True  # only try the swap once, even if commentary was empty
         speak(phrases[idx % len(phrases)])
         idx += 1
         for _ in range(COMMENTARY_INTERVAL * 10):
@@ -284,24 +312,29 @@ def main():
     parser.add_argument("--pyro",   action="store_true")
     parser.add_argument("--feed",   type=float)
     parser.add_argument("--engine", default="voxtral", choices=["kokoro", "voxtral", "system"])
+    parser.add_argument("--brain",  default="mistral", choices=["mistral", "apertus"], help="Ollama model for narration")
     parser.add_argument("--no-voice", action="store_true")
     parser.add_argument("--no-obs", action="store_true")
     parser.add_argument("--direct", action="store_true")
     parser.add_argument("--buyer",   default=None)
     parser.add_argument("--subject", default=None, help="Human-readable subject for narration")
     args = parser.parse_args()
-    global _tts_engine
+    global _tts_engine, OLLAMA_MODEL
     _tts_engine = args.engine
+    OLLAMA_MODEL = OLLAMA_MODELS[args.brain]
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
-    # Busy Check
-    if os.path.exists(JOB_LOCK):
+    # Busy Check (calibrate always allowed through)
+    if os.path.exists(JOB_LOCK) and args.action != "calibrate":
         with open(JOB_LOCK) as f: info = f.read().strip()
         msg = f"Robot Ross is already drawing ({info}). Please wait."
         print(msg)
-        subprocess.run(["openclaw", "message", "send", "--channel", "telegram", "--target", TELEGRAM_CHAT_ID, "--message", msg], capture_output=True)
+        try:
+            subprocess.run(["openclaw", "message", "send", "--channel", "telegram", "--target", TELEGRAM_CHAT_ID, "--message", msg], capture_output=True)
+        except FileNotFoundError:
+            pass  # openclaw not available on this machine
         sys.exit(1)
 
     # Readiness
@@ -352,27 +385,38 @@ def main():
         if sys.platform == "darwin":
             _caffeinate = subprocess.Popen(["caffeinate", "-d", "-i"])
 
-        # Narration
+        # Narration — generate in the background so drawing isn't gated behind
+        # 60-90s of local LLM inference. Speak generic filler immediately;
+        # run_commentary_dynamic swaps in the real request-specific lines once ready.
         narration_action = "pyro" if args.pyro else args.action
         narration_content = args.subject or getattr(args, "_sketch_subject", None) or args.content
-        narration = generate_narration(narration_action, narration_content, buyer=args.buyer) if not args.no_voice else {"intro":"", "commentary":[], "outro":""}
+        speakable = narration_content.replace('\\n', ' ').replace('\n', ' ').strip() if narration_content else ""
+
+        narration_result = {"data": None, "done": args.no_voice}
+        if not args.no_voice:
+            def _fetch_narration():
+                narration_result["data"] = generate_narration(narration_action, narration_content, buyer=args.buyer)
+                narration_result["done"] = True
+            threading.Thread(target=_fetch_narration, daemon=True).start()
 
         warning_tone()
         beep_end = time.time()
 
-        if not stop_flag.is_set() and narration["intro"]:
-            speak(narration["intro"])
+        if not stop_flag.is_set() and not args.no_voice:
+            speak(_generic_narration(speakable)["intro"])
 
         # Draw
         draw_done = threading.Event()
-        if narration["commentary"]:
-            threading.Thread(target=run_commentary, args=(narration["commentary"], draw_done), daemon=True).start()
+        if not args.no_voice:
+            threading.Thread(target=run_commentary_dynamic, args=(narration_result, draw_done), daemon=True).start()
 
         success = run_draw(args.action, args.content, args.size, pyro=args.pyro, feed=args.feed)
         draw_done.set()
 
         if not args.no_voice and success:
-            speak(narration["outro"])
+            # Don't block waiting for slow LLM generation — use it if it landed in time, else generic.
+            outro = (narration_result["data"] or _generic_narration(speakable))["outro"]
+            speak(outro)
 
         # YouTube / OBS Stop
         video_url = None

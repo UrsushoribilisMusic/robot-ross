@@ -5,8 +5,9 @@ quickdraw_compose.py
 Parse a text prompt into objects, fetch a Quick Draw sketch for each,
 and compose them into a single scene SVG.
 
-Uses Ollama (Apertus) to identify objects and their approximate canvas positions.
-Falls back to evenly-spaced layout if Ollama is unavailable.
+Uses Ollama (Mistral by default, Apertus optional via --brain) to identify objects
+and their approximate canvas positions. Falls back to evenly-spaced layout if
+Ollama is unavailable.
 
 Usage:
     python3 quickdraw_compose.py "a cat sitting on a bench" --out /tmp/scene.svg
@@ -35,12 +36,15 @@ from quickdraw_to_svg import (
     fetch_samples,
 )
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "MichelRosselli/apertus:8b-instruct-2509-q4_k_m"
+OLLAMA_URL    = "http://localhost:11434/api/generate"
+OLLAMA_MODELS = {
+    "mistral": "ministral-3:8b",
+    "apertus": "MichelRosselli/apertus:8b-instruct-2509-q4_k_m",
+}
 CANVAS       = 500   # SVG viewBox size in px; Quick Draw native space is 255
 
 
-def parse_scene_ollama(prompt):
+def parse_scene_ollama(prompt, brain="mistral"):
     """
     Ask Ollama to identify drawable objects + rough positions.
     Returns a list of dicts: [{object, cx, cy, scale}, ...]
@@ -55,7 +59,7 @@ def parse_scene_ollama(prompt):
     )
 
     payload = json.dumps({
-        "model": OLLAMA_MODEL,
+        "model": OLLAMA_MODELS[brain],
         "prompt": f"Scene: {prompt}",
         "system": system,
         "stream": False,
@@ -68,7 +72,7 @@ def parse_scene_ollama(prompt):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
             parsed = json.loads(result["response"])
             # Response might be the array directly or {"objects": [...]}
@@ -221,6 +225,7 @@ def main():
     parser.add_argument("--png-out", default=None, help="Also render a PNG preview to this path")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     parser.add_argument("--no-llm", action="store_true", help="Skip Ollama, use simple word extraction")
+    parser.add_argument("--brain", default="mistral", choices=["mistral", "apertus"], help="Ollama model for scene parsing")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -231,8 +236,8 @@ def main():
     # ── Parse scene ───────────────────────────────────────────────────────────
     scene = None
     if not args.no_llm:
-        print("  Parsing scene with Ollama…")
-        scene = parse_scene_ollama(args.prompt)
+        print(f"  Parsing scene with Ollama ({args.brain})…")
+        scene = parse_scene_ollama(args.prompt, brain=args.brain)
 
     if scene:
         print(f"  Objects from Ollama: {[o.get('object') for o in scene]}")
