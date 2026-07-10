@@ -57,7 +57,7 @@ header h1{font-size:11px;color:var(--muted);font-weight:400;letter-spacing:3px;t
 /* ── MAIN GRID ── */
 main{
   display:grid;
-  grid-template-columns:250px 1fr 360px;
+  grid-template-columns:250px 340px 1fr;
   gap:1px;
   background:var(--border);
   flex:1;
@@ -124,6 +124,7 @@ button{
 .bv{background:rgba(0,230,118,.12);color:var(--green);border:1px solid var(--green);font-size:16px;padding:7px 11px}
 .bv.rec{background:rgba(255,23,68,.15);color:var(--red);border-color:var(--red);animation:pulse 1s infinite}
 .bsm{padding:4px 9px;font-size:10px}
+a.bs{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;border-radius:6px;cursor:pointer;transition:.15s;text-decoration:none;font-size:12px;font-family:inherit;white-space:nowrap}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
 /* divider */
@@ -403,10 +404,15 @@ footer{
 <section class="panel">
   <h2>Talk to Ross</h2>
 
+  <div style="display:flex;gap:7px;margin-bottom:10px">
+    <a class="bs bsm" style="flex:1" href="http://localhost:8771/wiki-ui/index.html" target="_blank" rel="noopener">📖 ATF Wiki</a>
+    <a class="bs bsm" style="flex:1" href="http://localhost:8771/ledger-ui/index.html" target="_blank" rel="noopener">📊 Ledger Dashboard</a>
+  </div>
+
   <div class="chatbox" id="chatBox">
     <div class="msg r">
       <div class="snd">Robot Ross</div>
-      Hello! I'm Robot Ross, your happy little drawing robot. What would you like me to create today?
+      Hello! I'm Robot Ross, your happy little drawing robot. Ask me to draw or write something, or ask how I work — calibration, job history, anything from the wiki!
     </div>
   </div>
 
@@ -440,6 +446,8 @@ footer{
     <button class="bs bsm" onclick="qa('Write Hello World')">Write text</button>
     <button class="bs bsm" onclick="qa('Draw a circle')">Draw circle</button>
     <button class="bs bsm" onclick="qa('Load the bear SVG')">Load bear</button>
+    <button class="bs bsm" onclick="qa('How does calibration work?')">How calibration works</button>
+    <button class="bs bsm" onclick="qa('How many jobs have run?')">Job stats</button>
   </div>
 
   <div class="div"></div>
@@ -762,20 +770,29 @@ async function runConfirmedCommand(args){
 }
 
 let _pollTimer = null;
+let _pollGen = 0;
 
 function startPendingPoll(checkSketchStatus){
+  // Clear any previous poll loop AND invalidate it, so if it's mid-flight
+  // (already inside its interval callback, about to clear _pollTimer itself)
+  // it can no longer mistake itself for the current, active poll.
   if(_pollTimer) clearInterval(_pollTimer);
-  _pollTimer = setInterval(async ()=>{
+  const myGen = ++_pollGen;
+  const isCurrent = () => _pollGen === myGen;
+
+  const timerId = setInterval(async ()=>{
+    if(!isCurrent()){ clearInterval(timerId); return; }  // superseded — stop for good
     try{
       if(checkSketchStatus){
         const sr = await fetch('/api/sketch-status');
         const sd = await sr.json();
+        if(!isCurrent()){ clearInterval(timerId); return; }
         if(sd.status === 'generating'){
           const brainLabel = {mistral:'Mistral', apertus:'Apertus', haiku:'Claude Haiku'}[sd.brain] || sd.brain || 'the model';
           document.getElementById('pvBox').innerHTML =
             `<div class="pvph"><span class="spin2">⬤</span> Generating sketch… asking ${brainLabel} for a design</div>`;
         } else if(sd.status === 'error'){
-          clearInterval(_pollTimer); _pollTimer = null;
+          clearInterval(timerId); _pollGen++;  // also invalidates any other stale loop
           document.getElementById('pvWait').style.display = 'none';
           const msg = (sd.message || 'Unknown error').replace(/</g,'&lt;');
           document.getElementById('pvBox').innerHTML =
@@ -786,8 +803,9 @@ function startPendingPoll(checkSketchStatus){
       }
       const r = await fetch('/api/pending');
       const d = await r.json();
+      if(!isCurrent()){ clearInterval(timerId); return; }
       if(d.pending && d.svg_path){
-        clearInterval(_pollTimer); _pollTimer = null;
+        clearInterval(timerId); _pollGen++;
         pendingSvgPath = d.svg_path;
         pendingSketchPrompt = d.prompt || null;
         document.getElementById('pvWait').style.display = 'none';
@@ -804,14 +822,18 @@ function startPendingPoll(checkSketchStatus){
       }
     }catch(e){ /* server busy */ }
   }, 2000);
+  _pollTimer = timerId;
+
   // Stop polling after 3 minutes (sketch should never take that long)
-  setTimeout(()=>{ if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null;
+  setTimeout(()=>{
+    if(!isCurrent()) return;
+    clearInterval(timerId); _pollGen++;
     document.getElementById('pvWait').style.display='none';
     if(checkSketchStatus){
       document.getElementById('pvBox').innerHTML =
         '<div class="pvph">⚠️ Timed out waiting for the sketch<br><small>No response after 3 minutes</small></div>';
     }
-  } }, 180000);
+  }, 180000);
 }
 
 // ══════════════════════════════════════════════════
@@ -928,7 +950,10 @@ async function send(){
   }
 
   typeMsg(displayText || response, ()=>{
-    speakText(displayText.substring(0,200));
+    // Strip ATF's "Sources:"/"Backend:" footer before speaking — keep it in the
+    // displayed bubble, just don't read it aloud.
+    const spoken = displayText.split(/\n\nSources:/)[0].substring(0,200);
+    speakBackend(spoken);
     if(cmdArgs){
       // If the hint is an SVG file, switch the UI panel and show the preview
       if(cmdMatch[1] === 'svg') activateSvgFile(cmdMatch[2]);
@@ -1002,6 +1027,19 @@ function speakText(text){
   const pick = voices.find(v=>v.name.includes('Daniel')||v.name.includes('Alex')||v.lang==='en-US');
   if(pick) u.voice=pick;
   window.speechSynthesis.speak(u);
+}
+
+// Real backend TTS (Kokoro/Voxtral/System — matches the 🔊 TTS Engine selector).
+// Plays on this machine's own speakers; fire-and-forget, no audio streamed back.
+async function speakBackend(text){
+  if(!document.getElementById('togNar').checked) return;
+  const engine = document.getElementById('selTts').value;
+  try{
+    await fetch('/api/speak', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text, engine})
+    });
+  }catch(e){ /* best-effort — chat still works without voice */ }
 }
 
 function loadVoices(){

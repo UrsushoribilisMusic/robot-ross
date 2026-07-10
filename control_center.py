@@ -21,11 +21,21 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 HUENIT_DIR  = os.path.join(SCRIPT_DIR, "skills", "huenit")
 BOB_ROSS    = os.path.join(SCRIPT_DIR, "skills", "robot-ross", "bob_ross.py")
 CHAT_ROSS   = os.path.join(SCRIPT_DIR, "skills", "robot-ross", "chat_ross.py")
+SPEAK_PY    = os.path.join(SCRIPT_DIR, "skills", "voice", "speak.py")
 CAL_FILE      = os.path.join(HUENIT_DIR, "calibration.json")
 PENDING_STATE = os.path.join(tempfile.gettempdir(), "robot_ross_pending.json")
 SKETCH_STATUS = os.path.join(tempfile.gettempdir(), "robot_ross_sketch_status.json")
 OLLAMA_URL  = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "MichelRosselli/apertus:8b-instruct-2509-q4_k_m"
+OLLAMA_MODEL = "ministral-3:8b"
+ATF_QA_URL  = "http://localhost:8771/api/qa"
+
+# Phrases that indicate an actionable draw/write/calibrate request rather
+# than an informational question — these skip ATF and go straight to the
+# existing local-brain command-JSON flow (unchanged, fast, single call).
+_ACTION_KEYWORDS = (
+    "draw", "write", "sketch", "calibrate", "check if ready", "check status",
+    "load the", "load a", "fetch",
+)
 
 
 SKETCH_BRAIN = "mistral"  # brain ai_sketch.py generates with — keep in sync with its own --brain default
@@ -156,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
             self._post_execute(data)
         elif path == "/api/chat":
             self._post_chat(data)
+        elif path == "/api/speak":
+            self._post_speak(data)
         elif path == "/api/sketch-preview":
             self._post_sketch_preview(data)
         elif path == "/api/calibrate":
@@ -402,6 +414,25 @@ class Handler(BaseHTTPRequestHandler):
         print("\n[Showcase] Stopped.\n", flush=True)
         self._send_json({"ok": True, "status": "stopped"})
 
+    def _post_speak(self, data):
+        """Speak text through the real backend TTS engine (matches the 🔊 TTS Engine
+        selector) — fire-and-forget, plays on this machine's own speakers."""
+        text = (data.get("text") or "").strip()
+        if not text:
+            self._send_json({"error": "No text"}, 400)
+            return
+        engine = data.get("engine") or "voxtral"
+        if engine not in ("kokoro", "voxtral", "system"):
+            engine = "voxtral"
+        try:
+            subprocess.Popen(
+                [sys.executable, SPEAK_PY, text[:500], "--engine", engine],
+                cwd=SCRIPT_DIR,
+            )
+            self._send_json({"ok": True})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
     def _post_chat(self, data):
         message = data.get("message", "").strip()
         if not message:
@@ -430,7 +461,30 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return ""
 
-    def _ask_ross(self, message):
+    def _looks_like_command(self, message):
+        lowered = message.lower()
+        return any(kw in lowered for kw in _ACTION_KEYWORDS)
+
+    def _query_atf(self, message):
+        """Ask the local ATF Q&A server (wiki + operational-ledger RAG). Returns
+        the formatted answer, or None if ATF is unreachable or has nothing relevant."""
+        try:
+            payload = json.dumps({"query": message}).encode()
+            req = urllib.request.Request(
+                ATF_QA_URL, data=payload,
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=130) as r:
+                result = json.loads(r.read())
+                answer = result.get("answer", "")
+                if not answer or answer.startswith("No relevant content found"):
+                    return None
+                return answer
+        except Exception as e:
+            print(f"[chat] ATF query failed: {e}", flush=True)
+            return None
+
+    def _ask_ross_local(self, message):
+        """Local-brain fallback: command-JSON detection + generic chat, using the ledger directly."""
         ledger = self._load_ledger()
         ledger_section = (
             f"\n\n---\nOPERATIONAL LEDGER (live data from orders.xlsx):\n{ledger}\n---"
@@ -459,8 +513,22 @@ class Handler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=120) as r:
                 result = json.loads(r.read())
                 return result.get("response", random.choice(FALLBACK_RESPONSES))
-        except Exception:
+        except Exception as e:
+            print(f"[chat] local brain ({OLLAMA_MODEL}) failed: {e}", flush=True)
             return random.choice(FALLBACK_RESPONSES)
+
+    def _ask_ross(self, message):
+        # Draw/write/calibrate-style requests: unchanged, fast, single local-brain call.
+        if self._looks_like_command(message):
+            return self._ask_ross_local(message)
+
+        # Informational questions: prefer ATF's grounded wiki + ledger RAG answer.
+        atf_answer = self._query_atf(message)
+        if atf_answer:
+            return atf_answer
+
+        # ATF unreachable or had nothing relevant — fall back to the local brain.
+        return self._ask_ross_local(message)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -504,5 +572,32 @@ def main():
         print("\n[Control Center] Stopped.\n")
 
 
+EXPECTED_PYTHON = r"C:\Users\migue\.venv312\Scripts\python.exe"
+
+
+def _ensure_correct_python():
+    """
+    Relaunch under the project venv if launched with a different Python
+    (double-clicking control_center.py, a stray shortcut, IDE run button,
+    etc. resolve to the system install). Every subprocess this server spawns
+    (speak.py, ai_sketch.py, bob_ross.py) uses sys.executable, so the wrong
+    interpreter here silently breaks all of them with missing packages —
+    this has bitten sketch generation (missing anthropic) and Voxtral TTS
+    (stale mistralai) on system Python before.
+
+    Uses subprocess.Popen + os._exit rather than os.execv: on Windows,
+    os.execv does NOT reliably replace the current process — it can leave
+    the original process alive as a second, stale listener on the same
+    port (HTTPServer allows address reuse), silently splitting requests
+    between the correct and broken interpreter. os._exit(0) guarantees
+    this process is actually gone before the venv child starts serving.
+    """
+    if os.path.exists(EXPECTED_PYTHON) and os.path.normcase(sys.executable) != os.path.normcase(EXPECTED_PYTHON):
+        print(f"[control_center] Wrong interpreter ({sys.executable}) — relaunching under {EXPECTED_PYTHON}", flush=True)
+        subprocess.Popen([EXPECTED_PYTHON] + sys.argv, cwd=SCRIPT_DIR)
+        os._exit(0)
+
+
 if __name__ == "__main__":
+    _ensure_correct_python()
     main()
