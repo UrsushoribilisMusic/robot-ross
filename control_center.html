@@ -703,10 +703,12 @@ function doApprove(){
     const size  = document.getElementById('inpSize').value;
     const buyer = document.getElementById('inpBuyer').value.trim();
     const nar   = document.getElementById('togNar').checked;
+    const tts   = document.getElementById('selTts').value;
     args = ['svg', pendingSvgPath, '--size', size];
     if(pendingSketchPrompt) args.push('--subject', pendingSketchPrompt);
     if(buyer) args.push('--buyer', buyer);
     if(!nar)  args.push('--no-voice');
+    args.push('--engine', tts);
     pendingSvgPath = null;
     pendingSketchPrompt = null;
   } else {
