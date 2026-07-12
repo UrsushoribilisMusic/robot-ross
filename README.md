@@ -1,36 +1,36 @@
-# Robot Ross — Artist-as-a-Service
+# Robot Ross
 
-> A Huenit robot arm that draws, narrates, and sells its work online.
+> A Huenit robot arm that draws and narrates, controlled via a local browser UI.
 
 ---
 
 ## What Is This?
 
-Robot Ross is an AI-powered drawing robot running on a Mac mini M4. It takes text prompts, SVG files, or Shopify orders, draws them on paper using a pen plotter arm, narrates the process in Bob Ross style using a local Swiss AI model, and records the session to video.
+Robot Ross is an AI-powered drawing robot. It takes text prompts, SVG files, or spoken requests, draws them on paper using a pen plotter arm, and narrates the process in Bob Ross style using a local AI model (Mistral by default, Apertus available as a fallback).
 
-The end goal is a fully automated **Artist-as-a-Service**: customers buy a slot on a **10×10 Wall of Fame** via Shopify, the robot draws their piece live on YouTube, and ships the physical artwork.
+## Status Overview (read this first)
+
+- **Active (hackathon build)**: Huenit arm control, Mistral-backed narration/sketch generation/scene parsing, the Windows [Control Center](#windows-control-center-hackathon-build) UI, [ATF](#atf-agentic-technical-file) wiki/ledger Q&A.
+- **Dormant, not deleted**: OBS recording + camera capture (proof-of-work video) from the original Mac Mini build. Not used for the hackathon, but still functional — `obs_manager.py` and the Reolink camera setup work if reconnected. Kept because they may come in handy again later.
+- **Retired / repurposed**: the Shopify order pipeline, the Salesman VPS commerce flow (`artist_poller.py`, `salesman_client.py`), and the public **8×8 Wall of Fame dashboard**. This was the original Mac Mini "Artist-as-a-Service" business model — customers buy a slot via Shopify, the robot draws it live, artwork ships. The Shopify/Salesman infrastructure was later reused for the **Classical Reels** project, so the dashboard went unused; `api.robotross.art/dashboard` now actually serves the Flotilla fleet-hub app, not the Robot Ross order grid. Not needed for the hackathon. Documented here (rather than deleted outright) so a future session doesn't waste time rediscovering that the live URL doesn't match what the code implies.
 
 ---
 
 ## Architecture
 
-Full diagram: `~/Downloads/robot-ross-architecture.txt`
+Full diagram: [`robot-ross-architecture.txt`](robot-ross-architecture.txt) (repo root)
 
 ```
- 🛒 Shopify ──► Salesman VPS ──► artist_poller.py (polls every 180s) ──┐
-                (api.robotross.art, HTTPS)                              │
- 📱 Telegram ───────────────────────────────────────────────────────► OpenClaw (Haiku)
-                                                                             │
-                                    ┌────────────────────────────────────────┘
-                                    ▼
  Google Quick Draw ◄── quickdraw_compose ◄──────────── bob_ross.py
- Internet URL      ◄── huenit_sketch    ◄────────────── ├── OBS ──► ffmpeg ──► YouTube (unlisted)
- Local photo       ◄── image_to_svg     ◄────────────── ├── Apertus 8B (narration)
+ Internet URL      ◄── huenit_sketch    ◄────────────── ├── Mistral (narration, Apertus fallback)
+ Local photo       ◄── image_to_svg     ◄────────────── ├── OBS (dormant) ──► ffmpeg ──► video proof
  Text/calligraphy  ◄── huenit_write     ◄────────────── └── order_log ──► orders.xlsx
-                                    │                              │
-                               Huenit Arm (≤125mm)                 └──► artist_poller ──► Salesman
-                            Paper · 10×10 board                         (proof-of-work URL)
+                                    │
+                               Huenit Arm (≤125mm)
+                            Paper
 ```
+
+See [Windows Control Center](#windows-control-center-hackathon-build) below for the browser-based operator UI used for hackathon demos.
 
 ---
 
@@ -44,32 +44,32 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 | Draw shapes (circle, square…) | `huenit/huenit_draw.py` | ✅ |
 | Draw local SVG files | `huenit/huenit_svg.py` | ✅ |
 | Photo → SVG → draw (vtracer) | `huenit/image_to_svg.py` | ✅ |
-| Bob Ross narration via Apertus 8B | `robot-ross/bob_ross.py` | ✅ |
-| Telegram preview → approve/cancel | `robot-ross/bob_ross.py` | ✅ |
+| Bob Ross narration via local LLM | `robot-ross/bob_ross.py` | ✅ Mistral default, Apertus fallback |
+| Telegram preview → approve/cancel | `robot-ross/bob_ross.py` | ✅ (Mac Mini build) |
 | Job lock, caffeinate, SIGTERM stop | `robot-ross/bob_ross.py` | ✅ |
 | Desktop .command shortcuts | `~/Desktop/` | ✅ |
 
-### Phase 2 — Automated Studio (✅ Built)
+### Phase 2 — Automated Studio (✅ Built, 💤 = dormant/retired — see Status Overview)
 
 | Feature | File | Status |
 |---|---|---|
 | Quick Draw compositional sketches | `huenit/quickdraw_compose.py` | ✅ |
 | Internet SVG fetch with sanitisation | `huenit/huenit_sketch.py` | ✅ |
-| OBS recording + streaming control | `robot-ross/obs_manager.py` | ✅ |
-| OBS auto-start/stop per job | `robot-ross/bob_ross.py` | ✅ |
-| Trim recording to start after last beep | `robot-ross/bob_ross.py` | ✅ PR #8 |
+| OBS recording + streaming control | `robot-ross/obs_manager.py` | 💤 Dormant — functional, unused in hackathon build |
+| OBS auto-start/stop per job | `robot-ross/bob_ross.py` | 💤 Dormant |
+| Trim recording to start after last beep | `robot-ross/bob_ross.py` | 💤 Dormant · PR #8 |
 | Wrap long write-text into multiple lines | `huenit/huenit_write.py` | ✅ PR #10 |
 | Drawing area hard-capped at 125mm | `robot-ross/bob_ross.py` | ✅ PR #14 |
 | Font digits 0–9 complete | `huenit/huenit_write.py` | ✅ PR #14 |
-| Order ledger (orders.xlsx) | `robot-ross/order_log.py` | ✅ |
-| YouTube Shorts upload (OAuth2) | `robot-ross/youtube_upload.py` | ✅ PR #7 |
+| Order ledger (orders.xlsx) | `robot-ross/order_log.py` | ✅ still used for job history |
+| YouTube Shorts upload (OAuth2) | `robot-ross/youtube_upload.py` | 💤 Dormant · PR #7 |
 | Buyer name → personalised narration | `robot-ross/bob_ross.py` | ✅ |
 | `--direct` flag (no preview for orders) | `robot-ross/bob_ross.py` | ✅ |
-| Salesman REST API client | `robot-ross/salesman_client.py` | ✅ |
-| Artist order poller (auto-start on login) | `robot-ross/artist_poller.py` | ✅ |
-| Tailscale gateway (Artist ↔ Salesman) | `openclaw.json` | 🔧 Needs VPS |
-| Salesman: populate type/content/buyer from Shopify (#13) | Cloud | 🔧 agent:gemini |
-| YouTube stream key configuration | OBS Settings | 🔧 Pending |
+| Salesman REST API client | `robot-ross/salesman_client.py` | 🗄️ Retired/repurposed (Shopify pipeline → Classical Reels) |
+| Artist order poller (auto-start on login) | `robot-ross/artist_poller.py` | 🗄️ Retired/repurposed |
+| Tailscale gateway (Artist ↔ Salesman) | `openclaw.json` | 🗄️ Retired/repurposed |
+| Salesman: populate type/content/buyer from Shopify (#13) | Cloud | 🗄️ Retired/repurposed |
+| YouTube stream key configuration | OBS Settings | 💤 Dormant |
 
 ### Explored & Parked
 - **Potrace image pipeline** (`huenit/image_to_svg_potrace.py`) — 14× fewer moves than vtracer but visual quality insufficient. Parked until tuning improves.
@@ -81,23 +81,37 @@ Full diagram: `~/Downloads/robot-ross-architecture.txt`
 
 | Component | Details |
 |---|---|
-| Robot arm | Huenit, USB serial `/dev/cu.usbserial-310`, z_up: 6.0mm |
+| Robot arm | Huenit, USB serial `/dev/cu.usbserial-310` (Mac) or COM3 (Windows), z_up: 6.0mm |
 | Drawing area | Hard-capped at 125mm (physical limit confirmed 120–125mm) |
-| Computer | Mac mini M4, macOS Sequoia |
-| Camera | Reolink 4K, IP `192.168.1.40` |
-| Camera stream | `rtsp://admin:****@192.168.1.40:554/Preview_01_sub` |
-| Studio software | OBS Studio 32 (Apple Silicon), WebSocket port 4455 |
+| Computer | Mac mini M4, macOS Sequoia (production/dormant features) or a Windows laptop (hackathon build) |
+| Camera 💤 dormant | Reolink 4K, IP `192.168.1.40` — proof-of-work recording, not used in hackathon build |
+| Camera stream 💤 dormant | `rtsp://admin:****@192.168.1.40:554/Preview_01_sub` |
+| Studio software 💤 dormant | OBS Studio 32 (Apple Silicon), WebSocket port 4455 |
 
 ---
 
-## The 10×10 Wall of Fame
+## The 8×8 Wall of Fame (retired / repurposed — see Status Overview)
 
-The final product is a **100-slot physical installation**. Each slot is a 10×10cm square on a large board. Customers buy a slot via Shopify and submit a prompt or design. Robot Ross draws it live on YouTube, the piece is mounted in its numbered slot, and the customer receives a photo/video proof and optionally the original paper artwork shipped to them.
+The original commercial model for the Mac Mini build: a **64-slot physical installation**, each slot a 10×10cm square. Customers bought a slot via Shopify, Robot Ross drew it live on YouTube, and the artwork shipped. `orders.xlsx` tracked Received/Produced/Posted/Shipped per order.
 
-- **Revenue model**: sell 100 slots × CHF X per slot
-- **Content**: live YouTube drawing sessions, YouTube Shorts from each recording
-- **Proof of work**: OBS recording saved per order, URL logged in `orders.xlsx`
-- **Physical fulfilment**: `orders.xlsx` tracks Posted and Shipped per order
+This is **not part of the hackathon build** and the automation behind it is dormant/repurposed (see Status Overview above) — kept here for historical/architectural context, not as a current feature.
+
+- **Public dashboard**: there used to be a live status page at `api.robotross.art/dashboard` (source: `dashboard.html` in `salesman-cloud-infra`) showing the 8×8 grid + order pipeline via `GET /salesman/grid` and `GET /salesman/orders/all`. That URL now serves the unrelated Flotilla fleet-hub app instead — the Shopify/Salesman infrastructure was reused for the Classical Reels project. If this ever needs reviving, the dashboard source still exists in the repo; it just isn't deployed/routed anymore.
+
+---
+
+## Windows Control Center (hackathon build)
+
+For the Windows hackathon laptop, `control_center.py` (+ `control_center.html`) serves a local browser UI at `http://localhost:7870` — launched via the **"Robot Ross Control"** desktop shortcut (`launch_control_center.bat`). This is the primary way to operate the arm on this machine; it also starts the ATF Q&A server (below) automatically.
+
+- **Drawing Command** panel: Write / Draw / SVG / Sketch tabs, size slider, TTS engine selector (Kokoro/Voxtral/System).
+- **Talk to Ross** panel: a chat box that (a) turns natural-language draw/write/calibrate requests into confirmed arm commands, and (b) answers informational questions ("How does calibration work?", "How many jobs have run?") by querying the local **ATF Q&A server** for a grounded, sourced answer from the wiki + operational ledger — falling back to a generic local-model reply if ATF isn't running. Replies are spoken aloud through the real backend TTS engine, not the browser's built-in voice.
+- **Showcase Mode**: unattended voice-loop demo mode (Whisper STT → local brain → TTS → arm).
+- Two quick links open the **ATF Wiki** and **Ledger Dashboard** (`localhost:8771`) in new tabs.
+
+### ATF (Agentic Technical File)
+
+A separate local server (`atf_local_server.py`, port 8771, in the `atf-review`/`agentic-fleet-hub` repo) serves a compiled compliance/technical wiki plus a `/api/qa` endpoint backing the chat above. Local-first by default (Ministral 3 8B via Ollama), with hosted Mistral available as an explicit opt-in (`--backend hosted`) and Apertus reachable via `--backend ollama` if ever needed — neither auto-triggers, to avoid loading two large models on the same CPU at once. Launched together with the Control Center via `launch_control_center.bat`, or standalone via the "ATF Q&A Server" shortcut.
 
 ---
 
@@ -221,7 +235,9 @@ The Video URL column is also read back by `artist_poller.py` via `get_last_video
 
 ---
 
-## Automated Shopify Order Flow (Phase 2)
+## Automated Shopify Order Flow (Phase 2) — retired / repurposed
+
+🗄️ **Not part of the hackathon build.** This documents the original Mac Mini commerce pipeline for historical/architectural reference — the Shopify/Salesman infrastructure was later reused for the Classical Reels project (see Status Overview above).
 
 ```mermaid
 sequenceDiagram
@@ -313,11 +329,13 @@ workspace/
 
 ## AI Stack
 
-| Role | Model | Runtime |
-|---|---|---|
-| Brain (orders, decisions) | Claude Haiku 4.5 | Anthropic API |
-| Narration | Apertus 8B (Swiss) | Ollama local |
-| TTS | Kokoro | Local, espeak fallback |
-| Scene parsing (Quick Draw) | Apertus 8B | Ollama local |
+| Role | Model (default) | Alternates | Runtime |
+|---|---|---|---|
+| Brain (orders, decisions) | Claude Haiku 4.5 | — | Anthropic API |
+| Narration | Mistral (`ministral-3:8b`) | Apertus 8B (`--brain apertus`) | Ollama local |
+| Sketch generation (freeform SVG) | Mistral (`ministral-3:8b`) | Apertus, Claude Haiku (`--brain`) | Ollama local / Anthropic API |
+| Scene parsing (Quick Draw) | Mistral (`ministral-3:8b`) | Apertus 8B (`--brain apertus`) | Ollama local |
+| ATF wiki/ledger Q&A | Mistral local (Ministral 3 8B) | Hosted Mistral (`--backend hosted`), Apertus (`--backend ollama`) | Ollama local / Mistral API |
+| TTS | Voxtral (Mistral) | Kokoro, System | Mistral API / local |
 
-*Apertus is developed by MichelRosselli as part of an Innosuisse-funded project — proudly Swiss AI.*
+Mistral is the default brain across the board for the Mistral hackathon build. Apertus (Swiss, developed by MichelRosselli as part of an Innosuisse-funded project) remains available everywhere as an explicit fallback — it's just not auto-triggered, since running two large local models at once on a single CPU-only laptop causes contention (see the ATF fallback-chain note in the standups if curious).

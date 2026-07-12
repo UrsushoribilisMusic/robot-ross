@@ -4,6 +4,19 @@
 │                         Phase 1 + Phase 2                                │
 └──────────────────────────────────────────────────────────────────────────┘
 
+  STATUS (2026-07) -- read this first, see README.md "Status Overview" for detail
+  ------------------------------------------------------------------------------
+  ACTIVE (hackathon):   arm control, Mistral narration/sketch/scene-parsing,
+                         Windows Control Center, ATF wiki/ledger Q&A.
+  DORMANT (functional,  OBS recording + Reolink camera capture (proof-of-work
+  not used):             video). Kept working in case needed again later.
+  RETIRED/REPURPOSED:   Shopify order pipeline, Salesman VPS commerce flow,
+                         the 8x8 Wall of Fame dashboard. Shopify/Salesman infra
+                         was reused for Classical Reels; api.robotross.art/dashboard
+                         now serves the unrelated Flotilla fleet-hub app instead.
+                         Everything below describing Shopify/Salesman/the 8x8
+                         dashboard is historical/architectural reference only.
+
 
   ══════════════════════════════════════════════════════════════════════════
   INPUT CHANNELS
@@ -260,10 +273,14 @@
   COMPLETE TECHNOLOGY STACK
   ══════════════════════════════════════════════════════════════════════════
 
-  AI & MODELS
+  AI & MODELS  (Windows hackathon build — see 2026-07 UPDATE section below)
   ┌─────────────────────┬────────────────────────────────────────────────┐
   │ Claude Haiku 4.5    │ Anthropic API · control brain · SOUL+SKILL ctx │
-  │ Apertus 8B          │ Ollama local · narration + scene parsing       │
+  │ Mistral (default)   │ ministral-3:8b · Ollama local                  │
+  │                     │ narration + sketch gen + scene parsing + ATF   │
+  │                     │ hosted Mistral / Voxtral available via API key │
+  │ Apertus 8B          │ fallback only, via --brain apertus / --backend │
+  │                     │ ollama — not auto-triggered (see ATF note)     │
   │                     │ MichelRosselli/apertus:8b-instruct-2509-q4_k_m │
   │                     │ Swiss model · Innosuisse-funded · Q4_K_M quant │
   └─────────────────────┴────────────────────────────────────────────────┘
@@ -357,37 +374,70 @@
 
 
   ══════════════════════════════════════════════════════════════════════════
-  THE END GOAL  —  10×10 Wall of Fame
+  THE END GOAL  —  8×8 Wall of Fame
   ══════════════════════════════════════════════════════════════════════════
 
-  100 unique slots  ·  each 10×10 cm  ·  one drawing per customer
+  64 unique slots  ·  each 10×10 cm  ·  one drawing per customer
   drawn live on YouTube  ·  shipped to buyer  ·  permanent on the wall
 
-  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
-  │ 01 │ 02 │ 03 │ 04 │ 05 │ 06 │ 07 │ 08 │ 09 │ 10 │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │ 11 │ 12 │ 13 │ 14 │ 15 │ 16 │ 17 │ 18 │ 19 │ 20 │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │ 21 │ 22 │ .. │    │    │    │    │    │    │ 30 │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │    │    │    │    │    │    │    │    │    │    │
-  ├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  │ 91 │    │    │    │    │    │    │    │    │100 │
-  └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+  ┌────┬────┬────┬────┬────┬────┬────┬────┐
+  │ 01 │ 02 │ 03 │ 04 │ 05 │ 06 │ 07 │ 08 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 09 │ 10 │ 11 │ 12 │ 13 │ 14 │ 15 │ 16 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 17 │ 18 │ .. │    │    │    │    │ 24 │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │    │    │    │    │    │    │    │    │
+  ├────┼────┼────┼────┼────┼────┼────┼────┤
+  │ 57 │    │    │    │    │    │    │ 64 │
+  └────┴────┴────┴────┴────┴────┴────┴────┘
 
   Customer journey:
     1. Buy a slot on Shopify  →  choose a prompt or upload a design
     2. Salesman dispatches to Artist via Tailscale
-    3. Robot Ross draws it live on YouTube  (narrated by Apertus in Bob Ross style)
+    3. Robot Ross draws it live on YouTube  (narrated by Mistral in Bob Ross style, Apertus fallback)
     4. Recording saved  →  video link sent to customer
     5. Original paper artwork shipped  →  slot filled on the Wall of Fame forever
+
+
+  ══════════════════════════════════════════════════════════════════════════
+  2026-07 UPDATE  —  Windows Hackathon Build (Mistral, ATF, Control Center)
+  ══════════════════════════════════════════════════════════════════════════
+
+  Everything above describes the Mac Mini production pipeline (Telegram +
+  Shopify + OpenClaw + Apertus). For the Mistral hackathon, Robot Ross also
+  runs on a Windows laptop with these additions layered on top -- same
+  bob_ross.py orchestrator, same Huenit arm protocol, different brain +
+  a local browser UI instead of Telegram-only control:
+
+    - Mistral is now the default brain everywhere (narration, sketch
+      generation, Quick Draw scene parsing, ATF Q&A) via local Ollama
+      (ministral-3:8b). Apertus is kept as an explicit fallback
+      (--brain apertus) but is never auto-triggered on failure/timeout --
+      two large models loading at once on one CPU-only laptop causes
+      contention, confirmed via a real incident (see standups
+      2026-07-10 in agentic-fleet-hub).
+
+    - control_center.py / control_center.html -- a local web UI at
+      localhost:7870 ("Robot Ross Control" shortcut) replacing/augmenting
+      the Telegram-only flow for this machine. Draw/write/sketch/SVG
+      commands, a chat panel (draw commands + ATF-backed Q&A), Showcase
+      Mode (unattended voice loop), TTS engine selector.
+
+    - ATF (Agentic Technical File) -- atf_local_server.py, localhost:8771.
+      Serves a compiled compliance/technical wiki + ledger dashboard, and
+      a /api/qa RAG endpoint the Control Center's chat uses for real
+      questions ("how does calibration work", "how many jobs have run").
+      Local-first (Ministral 3 8B), hosted Mistral opt-in only.
+
+    - Correction (found 2026-07-12): the 8x8 Wall of Fame dashboard is
+      RETIRED, not just "unaffected" -- api.robotross.art/dashboard now
+      serves the unrelated Flotilla fleet-hub app. The Shopify/Salesman
+      pipeline this dashboard depended on was reused for Classical Reels.
+      See the STATUS block at the top of this file.
+
+  Full detail: README.md "Status Overview" and "Windows Control Center" sections.
