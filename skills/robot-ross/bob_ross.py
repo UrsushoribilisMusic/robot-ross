@@ -22,6 +22,8 @@ import threading
 import time
 import signal
 import argparse
+import tempfile
+import math
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -51,8 +53,9 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "bob_ross.log")
 
 # Telegram preview config
 TELEGRAM_CHAT_ID  = "997912895"
-PENDING_STATE     = "/tmp/robot_ross_pending.json"
-JOB_LOCK          = "/tmp/robot_ross_running.lock"
+PENDING_STATE     = os.path.join(tempfile.gettempdir(), "robot_ross_pending.json")
+JOB_LOCK          = os.path.join(tempfile.gettempdir(), "robot_ross_running.lock")
+READY_FLAG        = os.path.join(tempfile.gettempdir(), "huenit_ready.flag")
 
 # Maximum safe drawing area (mm). Arm loses steps beyond this â€” hard cap.
 MAX_DRAW_SIZE = 125
@@ -143,23 +146,30 @@ def log(event, detail=""):
 # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def handle_stop(signum, frame):
     """Signal handler for Ctrl+C or SIGTERM."""
-    print("\n[STOP] Interrupt received. Lifting pen and halting...")
+    print("\n[STOP] Interrupt received. Stopping the drawing process...")
     stop_flag.set()
     if _draw_proc and _draw_proc.poll() is None:
         _draw_proc.terminate()
 
 
-def readiness_check():
+def readiness_check(require_brain=True):
     """Verify hardware and Ollama status. Returns list of issue strings."""
     issues = []
     # Check port
-    if not os.path.exists(PORT) and sys.platform != "linux":
+    from serial.tools import list_ports
+    if PORT not in {p.device for p in list_ports.comports()}:
         issues.append(f"Robot arm not found on {PORT}")
+    if not os.path.exists(CALIBRATION_FILE) or not os.path.exists(READY_FLAG):
+        issues.append("Calibrate for this session before drawing")
     # Check Ollama
-    try:
-        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
-    except Exception:
-        issues.append("Ollama not running on localhost:11434")
+    if require_brain:
+        try:
+            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as response:
+                models = json.load(response).get('models', [])
+            if not any(m.get('name') == OLLAMA_MODEL for m in models):
+                issues.append(f"Narration model unavailable: {OLLAMA_MODEL}")
+        except Exception:
+            issues.append("Ollama not running on localhost:11434")
     return issues
 
 
@@ -282,7 +292,8 @@ def run_draw(action, content, size=None, pyro=False, feed=None):
         if feed: cmd += ["--feed", str(feed)]
     elif action == "draw":
         cmd = [py, os.path.join(HUENIT_DIR, "huenit_draw.py"), content]
-        if size: cmd.append(str(min(size, MAX_DRAW_SIZE)))
+        limit = MAX_DRAW_SIZE / 2 if content == 'circle' else 25 if content == 'demo' else MAX_DRAW_SIZE
+        if size: cmd.append(str(min(size, limit)))
     elif action == "svg":
         svg_path = content
         if not os.path.dirname(svg_path):
@@ -306,8 +317,9 @@ def run_draw(action, content, size=None, pyro=False, feed=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Robot Ross mode for the Huenit robot arm")
-    parser.add_argument("action", choices=["write", "draw", "svg", "image", "sketch", "fetch", "check", "calibrate"])
+    parser.add_argument("action", choices=["write", "draw", "svg", "image", "sketch", "fetch", "check", "calibrate", "approve", "cancel", "more", "less"])
     parser.add_argument("content", nargs="?")
+    parser.add_argument("shape_size", nargs="?", type=float)
     parser.add_argument("--size",   type=float)
     parser.add_argument("--pyro",   action="store_true")
     parser.add_argument("--feed",   type=float)
@@ -318,7 +330,17 @@ def main():
     parser.add_argument("--direct", action="store_true")
     parser.add_argument("--buyer",   default=None)
     parser.add_argument("--subject", default=None, help="Human-readable subject for narration")
+    parser.add_argument("--dry-run", action="store_true", help="Prepare/validate only; no arm, ledger, recording or upload")
+    parser.add_argument("--calibrate", "--calibrate-before", dest="calibrate_before", action="store_true")
+    parser.add_argument("--upload", action="store_true", help="Explicitly enable YouTube upload after recording")
     args = parser.parse_args()
+    if args.shape_size is not None:
+        if args.action != 'draw': parser.error('Positional size is only valid for draw')
+        args.size = args.shape_size
+    for name in ('size', 'feed'):
+        value = getattr(args, name)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            parser.error(name + ' must be a finite positive number')
     global _tts_engine, OLLAMA_MODEL
     _tts_engine = args.engine
     OLLAMA_MODEL = OLLAMA_MODELS[args.brain]
@@ -326,39 +348,89 @@ def main():
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
-    # Busy Check (calibrate always allowed through)
-    if os.path.exists(JOB_LOCK) and args.action != "calibrate":
+    if args.action == 'cancel':
+        if os.path.exists(PENDING_STATE): os.unlink(PENDING_STATE)
+        print('Pending preview cancelled.')
+        return
+
+    # Calibration also needs exclusive access to the arm.
+    if os.path.exists(JOB_LOCK):
         with open(JOB_LOCK) as f: info = f.read().strip()
         msg = f"Robot Ross is already drawing ({info}). Please wait."
         print(msg)
-        try:
-            subprocess.run(["openclaw", "message", "send", "--channel", "telegram", "--target", TELEGRAM_CHAT_ID, "--message", msg], capture_output=True)
-        except FileNotFoundError:
-            pass  # openclaw not available on this machine
         sys.exit(1)
 
     # Readiness
-    issues = readiness_check()
     if args.action == "check":
+        issues = readiness_check(require_brain=not args.no_voice)
         if issues: print(f"Not ready: {'; '.join(issues)}"); sys.exit(1)
         print("System ready."); sys.exit(0)
 
-    if args.action == "calibrate":
-        subprocess.run([sys.executable, os.path.join(HUENIT_DIR, "huenit_draw.py"), "calibrate"])
-        sys.exit(0)
+    if args.action == "calibrate" or args.calibrate_before:
+        if not args.dry_run:
+            try:
+                with open(JOB_LOCK, 'x') as f: f.write('calibrating')
+            except FileExistsError:
+                sys.exit('Another job acquired the arm.')
+            try:
+                result = subprocess.run([sys.executable, os.path.join(HUENIT_DIR, "huenit_draw.py"), "calibrate"])
+            finally:
+                os.unlink(JOB_LOCK)
+            if result.returncode: sys.exit(result.returncode)
+        if args.action == 'calibrate': return
+
+    if args.action in ('approve', 'more', 'less'):
+        if not os.path.exists(PENDING_STATE): parser.error('No pending preview')
+        with open(PENDING_STATE) as f: pending = json.load(f)
+        if args.action in ('more', 'less'):
+            if not pending.get('image_path'): parser.error('Detail controls require a photo preview')
+            smoothness = max(0.1, pending.get('smoothness', 6.0) + (-1 if args.action == 'more' else 1))
+            args.action, args.content = 'image', pending['image_path']
+        else:
+            args.action, args.content = 'svg', pending['svg_path']
+            args.subject = args.subject or pending.get('prompt')
+
+    if not args.content: parser.error(args.action + ' requires content')
+    if args.action == 'draw' and args.content not in ('square', 'triangle', 'circle', 'demo'):
+        parser.error('Unknown shape')
+
+    if args.action in ('image', 'fetch'):
+        svg_path = os.path.join(tempfile.gettempdir(), 'robot_ross_' + args.action + '.svg')
+        if args.action == 'image':
+            source = os.path.abspath(os.path.expanduser(args.content))
+            smoothness = locals().get('smoothness', 6.0)
+            convert_cmd = [sys.executable, os.path.join(HUENIT_DIR, 'image_to_svg.py'), source,
+                           '--out', svg_path, '--smoothness', str(smoothness)]
+        else:
+            convert_cmd = [sys.executable, os.path.join(HUENIT_DIR, 'huenit_sketch.py'), args.content,
+                           '--out', svg_path, '--fetch-only']
+        result = subprocess.run(convert_cmd)
+        if result.returncode: sys.exit(result.returncode)
+        if not args.direct:
+            state = {'svg_path': svg_path, 'prompt': args.subject or args.content}
+            if args.action == 'image': state.update(image_path=source, smoothness=smoothness)
+            with open(PENDING_STATE, 'w') as f: json.dump(state, f)
+            print('Preview ready; approve to draw.')
+            return
+        args.action, args.content = 'svg', svg_path
 
     # Sketch handling (composed)
     if args.action == "sketch":
         if not args.content: parser.error("sketch requires a prompt")
-        import tempfile
         svg_path = os.path.join(tempfile.gettempdir(), "ai_sketch.svg")
         log("SKETCH", f"Requesting Haiku SVG for: {args.content!r}")
         compose_cmd = [sys.executable, os.path.join(HUENIT_DIR, "ai_sketch.py"), args.content, "--out", svg_path]
-        subprocess.run(compose_cmd)
-        if not os.path.exists(svg_path):
+        if os.path.exists(svg_path): os.unlink(svg_path)
+        result = subprocess.run(compose_cmd)
+        if result.returncode or not os.path.exists(svg_path):
             log("SKETCH ERROR", "ai_sketch.py did not produce an SVG — aborting")
             sys.exit(1)
         sketch_subject = args.content
+        if not args.direct:
+            with open(PENDING_STATE, 'w') as f:
+                json.dump({'svg_path': svg_path, 'prompt': sketch_subject}, f)
+            print('Preview ready; approve to draw.')
+            return
         args.action = "svg"
         args.content = svg_path
         args._sketch_subject = sketch_subject
@@ -367,8 +439,20 @@ def main():
     if args.action == "write" and args.content:
         args.content = wrap_text(args.content)
 
+    if args.dry_run:
+        print(f'DRY RUN: {args.action} {args.content!r}; no arm commands sent.')
+        return
+
+    issues = readiness_check(require_brain=not args.no_voice)
+    if issues:
+        print('Not ready: ' + '; '.join(issues))
+        sys.exit(1)
+
     # Lock
-    with open(JOB_LOCK, "w") as f: f.write(f"action={args.action} content={args.content!r}")
+    try:
+        with open(JOB_LOCK, "x") as f: f.write(f"action={args.action} content={args.content!r}")
+    except FileExistsError:
+        sys.exit('Another job acquired the arm. Please wait.')
 
     try:
         log("JOB START", f"action={args.action} content={args.content!r}")
@@ -424,7 +508,7 @@ def main():
             try:
                 import obs_manager
                 video_path = obs_manager.stop_show()
-                if video_path:
+                if video_path and args.upload:
                     # Simplified YouTube upload for now
                     import youtube_upload
                     video_url = youtube_upload.youtube_upload(video_path, title=f"Robot Ross drawing", buyer=args.buyer, prompt=args.content)

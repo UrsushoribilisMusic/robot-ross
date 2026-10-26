@@ -17,3 +17,8 @@ memory/
 skills/robot-ross/MEMORY.md
 skills/robot-ross/.salesman_config
 *.log
+.venv/
+.env
+*.lock
+skills/robot-ross/.youtube_token.json
+skills/robot-ross/youtube_client_secrets.json

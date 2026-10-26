@@ -210,12 +210,14 @@ def calibrate(g, size=None):
     size: requested drawing size in mm. If > 80, tilt calibration extends to cover it.
     """
     _log("CALIBRATION START")
+    if os.path.exists(READY_FLAG):
+        os.unlink(READY_FLAG)
     print("\n Calibration Mode")
     print("Step 1: Jog the tip until it TOUCHES the surface.")
     print("  W = up 0.5mm  |  S = down 0.5mm  |  Enter = confirm touching  |  Q = abort")
-    import msvcrt
+    from console_keys import getch
     while True:
-        ch = msvcrt.getch()
+        ch = getch()
         if ch in (b'\r', b'\n'):
             break
         if ch.lower() == b'q':
@@ -281,7 +283,7 @@ def calibrate(g, size=None):
                 print(f"\n  [{label}]  W=up 0.1mm | S=down 0.1mm | Enter=touching | Q=abort")
                 z_adj = 0.0
                 while True:
-                    ch = msvcrt.getch()
+                    ch = getch()
                     if ch in (b'\r', b'\n'):
                         return z_adj
                     if ch.lower() == b'q':

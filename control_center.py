@@ -6,17 +6,20 @@ Serves the web UI and executes bob_ross.py commands.
 Run via launch_control_center.bat
 """
 
-import sys, os, json, subprocess, threading, time, webbrowser, random, tempfile
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import sys, os, json, subprocess, threading, time, webbrowser, random, tempfile, signal, shlex
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 import urllib.request
+import importlib.util
+import socket
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-PORT        = 7870
+PORT        = int(os.environ.get('ROSS_UI_PORT', '7870'))
+ARM_PORT    = os.environ.get('HUENIT_PORT', '/dev/cu.usbserial-310' if sys.platform == 'darwin' else 'COM3')
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 HUENIT_DIR  = os.path.join(SCRIPT_DIR, "skills", "huenit")
 BOB_ROSS    = os.path.join(SCRIPT_DIR, "skills", "robot-ross", "bob_ross.py")
@@ -70,7 +73,7 @@ running_proc = None   # the bob_ross.py Popen object for the current job
 showcase_lock = threading.Lock()
 showcase_proc = None
 
-JOB_LOCK_PATH = os.path.join("C:\\", "tmp", "robot_ross_running.lock")
+JOB_LOCK_PATH = os.path.join(tempfile.gettempdir(), 'robot_ross_running.lock')
 
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
@@ -105,12 +108,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _read_body(self):
-        length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length)
         try:
-            return json.loads(raw) if raw else {}
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 <= length <= 1024 * 1024:
+                raise ValueError('Request too large')
+            raw = self.rfile.read(length)
+            data = json.loads(raw) if raw else {}
+            if not isinstance(data, dict): raise ValueError('Expected JSON object')
+            return data
         except Exception:
-            return {}
+            self._send_json({'error': 'Invalid JSON request'}, 400)
+            return None
 
     # ── routing ──────────────────────────────────────────────────────────────
 
@@ -159,8 +167,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        origin = self.headers.get('Origin')
+        allowed = {f'http://localhost:{PORT}', f'http://127.0.0.1:{PORT}'}
+        if self.headers.get('Host') not in {f'localhost:{PORT}', f'127.0.0.1:{PORT}'} or (origin and origin not in allowed):
+            self._send_json({'error': 'Control commands must originate from the local Control Center'}, 403)
+            return
         path = urlparse(self.path).path
         data = self._read_body()
+        if data is None: return
 
         if path == "/api/execute":
             self._post_execute(data)
@@ -244,16 +258,21 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_json({
             "calibration": cal,
-            "arm_port": os.environ.get("HUENIT_PORT", "COM3"),
+            "arm_port": ARM_PORT,
+            "model": OLLAMA_MODEL,
             "ollama": self._check_ollama(),
             "job_running": running_job is not None and running_job.is_alive(),
             "showcase_running": sc_running,
+            "capabilities": {name: importlib.util.find_spec(module) is not None for name, module in {
+                'serial': 'serial', 'photo_trace': 'vtracer', 'ledger': 'openpyxl',
+                'microphone': 'sounddevice', 'whisper': 'whisper', 'kokoro': 'kokoro',
+                'voxtral': 'mistralai', 'obs': 'obsws_python'}.items()},
         })
 
     def _post_execute(self, data):
         global running_job
         args = data.get("args", [])
-        if not args:
+        if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args):
             self._send_json({"error": "No args"}, 400)
             return
 
@@ -263,11 +282,14 @@ class Handler(BaseHTTPRequestHandler):
         if args[0] not in SAFE:
             self._send_json({"error": "Unknown action"}, 400)
             return
+        if args[0] == 'calibrate':
+            self._post_calibrate()
+            return
 
         if sys.platform != "darwin" and "--no-obs" not in args:
             args = args + ["--no-obs"]
         cmd = [sys.executable, BOB_ROSS] + args
-        env  = {**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")}
+        env  = {**os.environ, "HUENIT_PORT": ARM_PORT}
 
         print(f"\n{'='*52}")
         print(f"  >> {' '.join(args)}")
@@ -276,7 +298,8 @@ class Handler(BaseHTTPRequestHandler):
         def _run():
             global running_job, running_proc
             try:
-                proc = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=env)
+                proc = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=env,
+                                        start_new_session=os.name != 'nt')
                 with job_lock:
                     running_proc = proc
                 proc.wait()
@@ -287,6 +310,12 @@ class Handler(BaseHTTPRequestHandler):
                     running_proc = None
 
         with job_lock:
+            if showcase_proc is not None and showcase_proc.poll() is None:
+                self._send_json({"error": "Stop voice showcase before starting another arm job"}, 409)
+                return
+            if running_job is not None and running_job.is_alive():
+                self._send_json({"error": "A job is already running"}, 409)
+                return
             running_job = threading.Thread(target=_run, daemon=True)
             running_job.start()
 
@@ -333,8 +362,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "msg": "Generating sketch…"})
 
     def _post_calibrate(self):
+        if (running_job is not None and running_job.is_alive()) or (showcase_proc is not None and showcase_proc.poll() is None):
+            self._send_json({'error': 'Stop the current job/showcase before calibration'}, 409)
+            return
         try:
-            env = {**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")}
+            env = {**os.environ, "HUENIT_PORT": ARM_PORT}
             bat = os.path.normpath(os.path.join(SCRIPT_DIR, "calibrate.bat"))
             if sys.platform == "win32":
                 subprocess.Popen(
@@ -342,12 +374,20 @@ class Handler(BaseHTTPRequestHandler):
                     cwd=SCRIPT_DIR, env=env,
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
+            elif sys.platform == 'darwin':
+                command = 'cd ' + shlex.quote(SCRIPT_DIR) + ' && ' + shlex.join([
+                    'env', 'HUENIT_PORT=' + ARM_PORT, sys.executable, BOB_ROSS, 'calibrate'])
+                # Terminal's --args does not execute a shell command. AppleScript
+                # do script creates an actual interactive terminal for calibration.
+                script = 'tell application "Terminal"\nactivate\ndo script ' + json.dumps(command) + '\nend tell'
+                subprocess.Popen(['osascript', '-e', script], cwd=SCRIPT_DIR, env=env)
             else:
-                subprocess.Popen(["open", "-a", "Terminal", "--args", "bash", "-c",
-                                   f'"{sys.executable}" "{BOB_ROSS}" calibrate'],
-                                 cwd=SCRIPT_DIR, env=env)
+                self._send_json({"error": "Run bob_ross.py calibrate in a terminal"}, 409)
+                return
         except Exception as e:
             print(f"[Calibrate] Error: {e}", flush=True)
+            self._send_json({"error": "Could not open calibration terminal"}, 500)
+            return
         self._send_json({"ok": True, "msg": "Calibration window opened"})
 
     def _post_cancel(self):
@@ -357,30 +397,37 @@ class Handler(BaseHTTPRequestHandler):
             proc = running_proc
         if proc and proc.poll() is None:
             try:
-                proc.terminate()
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
+                else:
+                    os.killpg(proc.pid, signal.SIGTERM)
                 try: proc.wait(timeout=3)
-                except subprocess.TimeoutExpired: proc.kill()
+                except subprocess.TimeoutExpired:
+                    if os.name == 'nt': proc.kill()
+                    else: os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait(timeout=3)
                 killed = True
                 print("\n[Control Center] Job cancelled by user.\n", flush=True)
             except Exception as e:
                 print(f"[Cancel] Error: {e}", flush=True)
-        # Clean up stale lock file
+        # Cancellation also discards a preview. Never delete a running job lock:
+        # the job owns it and releases it after its child has stopped.
         try:
-            if os.path.exists(JOB_LOCK_PATH):
-                os.remove(JOB_LOCK_PATH)
+            if os.path.exists(PENDING_STATE):
+                os.remove(PENDING_STATE)
         except Exception:
             pass
         self._send_json({"ok": True, "killed": killed})
 
     def _run_simple(self, args):
-        cmd = [sys.executable, BOB_ROSS] + args
-        subprocess.Popen(cmd, cwd=SCRIPT_DIR,
-                         env={**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")})
-        self._send_json({"ok": True})
+        self._post_execute({"args": args})
 
     def _post_showcase_start(self, data):
         global showcase_proc
         with showcase_lock:
+            if running_job is not None and running_job.is_alive():
+                self._send_json({'error': 'Wait for the current arm job'}, 409)
+                return
             if showcase_proc is not None and showcase_proc.poll() is None:
                 self._send_json({"ok": True, "status": "already_running"})
                 return
@@ -394,8 +441,9 @@ class Handler(BaseHTTPRequestHandler):
             no_arm = data.get("no_arm", False)
             if no_arm:
                 args.append("--no-arm")
-            env = {**os.environ, "HUENIT_PORT": os.environ.get("HUENIT_PORT", "COM3")}
-            showcase_proc = subprocess.Popen(args, cwd=SCRIPT_DIR, env=env)
+            env = {**os.environ, "HUENIT_PORT": ARM_PORT}
+            showcase_proc = subprocess.Popen(args, cwd=SCRIPT_DIR, env=env,
+                                             start_new_session=os.name != 'nt')
         print(f"\n[Showcase] Started (pid {showcase_proc.pid})\n", flush=True)
         self._send_json({"ok": True, "status": "started", "pid": showcase_proc.pid})
 
@@ -405,11 +453,16 @@ class Handler(BaseHTTPRequestHandler):
             if showcase_proc is None or showcase_proc.poll() is not None:
                 self._send_json({"ok": True, "status": "not_running"})
                 return
-            showcase_proc.terminate()
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(showcase_proc.pid), '/T', '/F'], capture_output=True)
+            else:
+                os.killpg(showcase_proc.pid, signal.SIGTERM)
             try:
                 showcase_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                showcase_proc.kill()
+                if os.name == 'nt': showcase_proc.kill()
+                else: os.killpg(showcase_proc.pid, signal.SIGKILL)
+                showcase_proc.wait(timeout=3)
             showcase_proc = None
         print("\n[Showcase] Stopped.\n", flush=True)
         self._send_json({"ok": True, "status": "stopped"})
@@ -448,7 +501,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags")
             with urllib.request.urlopen(req, timeout=2) as r:
-                return r.status == 200
+                return any(m.get('name') == OLLAMA_MODEL for m in json.load(r).get('models', []))
         except Exception:
             return False
 
@@ -515,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
                 return result.get("response", random.choice(FALLBACK_RESPONSES))
         except Exception as e:
             print(f"[chat] local brain ({OLLAMA_MODEL}) failed: {e}", flush=True)
-            return random.choice(FALLBACK_RESPONSES)
+            return 'The configured local model is unavailable. Drawing controls still work with narration off; chat and AI sketches need the configured model service.'
 
     def _ask_ross(self, message):
         # Draw/write/calibrate-style requests: unchanged, fast, single local-brain call.
@@ -533,7 +586,7 @@ class Handler(BaseHTTPRequestHandler):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-class _QuietServer(HTTPServer):
+class _QuietServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         import traceback
         exc = traceback.format_exc()
@@ -541,15 +594,27 @@ class _QuietServer(HTTPServer):
             return  # browser closed connection early — harmless
         super().handle_error(request, client_address)
 
+def start_atf():
+    if sys.platform != 'darwin': return None
+    with socket.socket() as sock:
+        if sock.connect_ex(('127.0.0.1', 8771)) == 0: return None
+    path = os.environ.get('ROSS_ATF_SERVER', os.path.expanduser(
+        '~/projects/agentic-fleet-hub/ATF/tools/atf_local_server.py'))
+    if not os.path.isfile(path):
+        print('ATF wiki/ledger not found; set ROSS_ATF_SERVER to its server script.')
+        return None
+    return subprocess.Popen([sys.executable, path, '--host', '127.0.0.1', '--port', '8771'])
+
 def main():
-    server = _QuietServer(("localhost", PORT), Handler)
+    server = _QuietServer(("127.0.0.1", PORT), Handler)
+    atf_proc = start_atf()
     banner = f"""
 ========================================
   Robot Ross Control Center
 ========================================
 
   Server : http://localhost:{PORT}
-  Arm    : {os.environ.get("HUENIT_PORT", "COM3")}
+  Arm    : {ARM_PORT}
   Python : {sys.executable}
 
   Your browser will open automatically.
@@ -570,6 +635,11 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[Control Center] Stopped.\n")
+    finally:
+        server.server_close()
+        if atf_proc is not None and atf_proc.poll() is None:
+            atf_proc.terminate()
+            atf_proc.wait(timeout=5)
 
 
 EXPECTED_PYTHON = r"C:\Users\migue\.venv312\Scripts\python.exe"

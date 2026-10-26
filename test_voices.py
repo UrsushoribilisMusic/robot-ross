@@ -12,7 +12,8 @@ import base64
 import os
 import sys
 import tempfile
-import winsound
+if sys.platform == 'win32':
+    import winsound
 
 EN_PHRASE = "There are no mistakes, only happy little accidents."
 FR_PHRASE = "Il n'y a pas d'erreurs, seulement de joyeux petits accidents."
@@ -53,6 +54,10 @@ VOICES = [
 
 
 def play_wav(path):
+    if sys.platform == 'darwin':
+        import subprocess
+        subprocess.run(['afplay', path], check=True)
+        return
     try:
         winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_NODEFAULT)
     except Exception:
