@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import io
 import os
 from pathlib import Path
 import pty
@@ -44,6 +45,28 @@ class PortTests(unittest.TestCase):
             with self.assertRaises(SystemExit): self.command('write', 'Hello', '--no-voice')
             draw.assert_not_called()
             order.assert_not_called()
+
+    def test_manual_write_with_narration_does_not_require_model(self):
+        def immediate_thread(target, args=(), **kwargs):
+            return Mock(start=lambda: target(*args))
+        with patch.object(bob, 'readiness_check', return_value=[]) as ready, \
+             patch.object(bob, 'run_draw', return_value=True) as draw, \
+             patch.object(bob, 'generate_narration', return_value=bob._generic_narration('Hello')), \
+             patch.object(bob, 'speak'), patch.object(bob, 'warning_tone'), \
+             patch.object(bob, 'run_commentary_dynamic'), \
+             patch.object(bob.threading, 'Thread', side_effect=immediate_thread), \
+             patch.object(bob.subprocess, 'Popen'), \
+             patch.object(bob.order_log, 'start', return_value=2), patch.object(bob.order_log, 'end'):
+            self.command('write', 'Hello', '--no-obs')
+            ready.assert_called_once_with(require_brain=False)
+            draw.assert_called_once_with('write', 'Hello', None, pyro=False, feed=None)
+            self.assertFalse(Path(bob.JOB_LOCK).exists())
+
+    def test_missing_model_uses_builtin_narration_without_generation_request(self):
+        with patch.object(bob.urllib.request, 'urlopen', return_value=io.BytesIO(b'{"models": []}')) as call:
+            result = bob.generate_narration('write', 'Hello')
+            self.assertIn('Hello', result['intro'])
+            call.assert_called_once_with('http://localhost:11434/api/tags', timeout=2)
 
     def test_cancel_discards_preview_without_moving(self):
         Path(bob.PENDING_STATE).write_text('{}')

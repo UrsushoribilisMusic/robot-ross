@@ -517,6 +517,7 @@ const SVG_ICONS = {
 // ══════════════════════════════════════════════════
 //  API CALLS
 // ══════════════════════════════════════════════════
+let lastJobNotice = null;
 async function fetchStatus(){
   try{
     const r = await fetch('/api/status');
@@ -554,6 +555,10 @@ async function fetchStatus(){
     jr.className = 'running' + (d.job_running ? ' on' : '');
     // disable execute while running
     document.querySelector('footer .bp').disabled = d.job_running;
+    if(d.last_job && d.last_job.id !== lastJobNotice){
+      lastJobNotice = d.last_job.id;
+      if(d.last_job.status === 'failed') addMsg('ross', `⚠️ ${d.last_job.message}`);
+    }
   }catch(e){ /* server not yet up */ }
 }
 

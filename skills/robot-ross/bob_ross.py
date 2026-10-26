@@ -246,6 +246,11 @@ def generate_narration(action, content, buyer=None):
 
     payload = json.dumps({"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "format": "json"}).encode()
     try:
+        with urllib.request.urlopen('http://localhost:11434/api/tags', timeout=2) as response:
+            available = json.load(response).get('models', [])
+        if not any(m.get('name') == OLLAMA_MODEL for m in available):
+            log('NARRATION', 'Local model unavailable; using built-in narration.')
+            return _generic_narration(speakable)
         req = urllib.request.Request(OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
@@ -443,7 +448,9 @@ def main():
         print(f'DRY RUN: {args.action} {args.content!r}; no arm commands sent.')
         return
 
-    issues = readiness_check(require_brain=not args.no_voice)
+    # Manual jobs already have their geometry. Optional narration must not
+    # prevent drawing when the language model was removed or is offline.
+    issues = readiness_check(require_brain=False)
     if issues:
         print('Not ready: ' + '; '.join(issues))
         sys.exit(1)
@@ -516,6 +523,7 @@ def main():
 
         order_log.end(order_row, "success" if success else "failed")
         if video_url: order_log.set_video(order_row, video_url)
+        if not success: sys.exit(1)
 
     finally:
         if '_caffeinate' in locals(): _caffeinate.terminate()

@@ -70,6 +70,7 @@ FALLBACK_RESPONSES = [
 job_lock = threading.Lock()
 running_job = None
 running_proc = None   # the bob_ross.py Popen object for the current job
+last_job = None
 showcase_lock = threading.Lock()
 showcase_proc = None
 
@@ -262,6 +263,7 @@ class Handler(BaseHTTPRequestHandler):
             "model": OLLAMA_MODEL,
             "ollama": self._check_ollama(),
             "job_running": running_job is not None and running_job.is_alive(),
+            "last_job": last_job,
             "showcase_running": sc_running,
             "capabilities": {name: importlib.util.find_spec(module) is not None for name, module in {
                 'serial': 'serial', 'photo_trace': 'vtracer', 'ledger': 'openpyxl',
@@ -270,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def _post_execute(self, data):
-        global running_job
+        global running_job, last_job
         args = data.get("args", [])
         if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args):
             self._send_json({"error": "No args"}, 400)
@@ -296,14 +298,19 @@ class Handler(BaseHTTPRequestHandler):
         print(f"{'='*52}\n", flush=True)
 
         def _run():
-            global running_job, running_proc
+            global running_job, running_proc, last_job
             try:
                 proc = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=env,
                                         start_new_session=os.name != 'nt')
                 with job_lock:
                     running_proc = proc
                 proc.wait()
+                last_job = {'id': time.time_ns(), 'status': 'completed' if proc.returncode == 0 else 'failed',
+                            'message': 'Command completed.' if proc.returncode == 0 else
+                            'Command failed. Check calibration, selected model and the Control Center terminal for details.'}
                 print(f"\n[Control Center] Job finished.\n", flush=True)
+            except Exception:
+                last_job = {'id': time.time_ns(), 'status': 'failed', 'message': 'Could not start the command. Check the Control Center terminal.'}
             finally:
                 with job_lock:
                     running_job = None
@@ -317,6 +324,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "A job is already running"}, 409)
                 return
             running_job = threading.Thread(target=_run, daemon=True)
+            last_job = None
             running_job.start()
 
         self._send_json({"ok": True, "command": " ".join(args)})

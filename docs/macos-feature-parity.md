@@ -50,8 +50,10 @@ or speech model weights were downloaded during this port.
 
 ## Actual verification, 2026-10-26
 
-- 13 regression tests passed on macOS in both system Python 3.9 and the isolated
-  Python 3.12 environment. These use fake providers/processes and a terminal PTY;
+- The initial 13 regression tests passed on macOS in both system Python 3.9 and
+  the isolated Python 3.12 environment. The write-command follow-up passes 15
+  tests in Python 3.12, including narrated manual writing without a model.
+  These use fake providers/processes and a terminal PTY;
   they do not prove physical drawing or live voice quality.
 - The isolated environment passes `pip check`; serial, image, ledger, tracing,
   microphone, Whisper, Kokoro, Mistral, Anthropic and OBS modules import.
@@ -60,6 +62,9 @@ or speech model weights were downloaded during this port.
 - Ollama daemon responds but its model list is empty, consistent with Miguel's
   disk cleanup. No model was restored. Model-dependent features remain pending
   a cloud/local selection; silent pen controls do not require Ollama.
+- Manual write/shape/SVG jobs also work with narration enabled: a missing local
+  model uses built-in narration, and Voxtral without credentials uses system
+  speech. Failed command exits are surfaced in the Control Center page.
 - `bob_ross.py check --no-voice` correctly reports session calibration missing.
   The arm has not moved during this port. Old poller PID 1870 remains paused.
 
