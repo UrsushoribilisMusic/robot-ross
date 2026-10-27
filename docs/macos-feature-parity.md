@@ -109,3 +109,10 @@ This is one successful supervised trial after both recalibration and code change
 not an isolated demonstration that the code defect alone caused earlier failures.
 Actual side lengths, metric camera registration and general robustness remain
 unverified. Calibration and order-ledger files remain the operator's local data.
+
+Operator's subsequent ruler check reports45 mm wide ×40 mm high for the40 mm
+square (units explicitly confirmed): visual contact improved, but dimensional
+accuracy did not pass. Source inspection confirms40 mm relative commands on both
+axes and no wrapper enlargement at this size. Cause and measured-width-to-robot-
+axis identity remain unverified. Requested opposite-edge measurements; no
+firmware scaling, physical calibration or additional motion was changed.
