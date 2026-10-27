@@ -94,3 +94,18 @@ job reads the updated script without a server restart.
 not drawing pressure. Lowering it does not compensate for a mistaken contact
 origin. Do not alter the operator's calibration file or order ledger as part
 of this code fix. Raw failed takes remain in the private capture dataset.
+
+### Supervised trial after the fix
+
+Operator recalibrated (saved z_up2, tilt_y0.0325, tilt_x0.00375) and ran the same
+40 mm square with the updated shape script. Operator reports it “worked
+beautifully”; the post-draw image shows a closed outline with much clearer
+sides. Controller reports completed/idle. A 120-second Reolink recording and
+high-resolution result are archived privately as S21/S22 in the 27 October
+drawing-readiness dataset. Sampled recording frames show state changes and the
+completed square; exact stroke boundaries are not annotated.
+
+This is one successful supervised trial after both recalibration and code change,
+not an isolated demonstration that the code defect alone caused earlier failures.
+Actual side lengths, metric camera registration and general robustness remain
+unverified. Calibration and order-ledger files remain the operator's local data.
