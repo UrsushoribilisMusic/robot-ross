@@ -102,6 +102,19 @@ This is **not part of the hackathon build** and the automation behind it is dorm
 
 ## Windows Control Center (hackathon build)
 
+### macOS Control Center
+
+The same laptop UI now has a Mac launcher: double-click
+[`launch_control_center.command`](launch_control_center.command), then use
+<http://localhost:7870>. The Mac port includes interactive calibration,
+preview approval/cancellation, positional shape sizes and Mac voice-tool fixes.
+See [the feature inventory and live-check status](docs/macos-feature-parity.md)
+for setup and remaining hardware/model checks. Local model weights are not
+installed automatically. OBS recording is optional; YouTube upload requires an
+explicit `--upload` command-line flag.
+
+### Windows launcher
+
 For the Windows hackathon laptop, `control_center.py` (+ `control_center.html`) serves a local browser UI at `http://localhost:7870` — launched via the **"Robot Ross Control"** desktop shortcut (`launch_control_center.bat`). This is the primary way to operate the arm on this machine; it also starts the ATF Q&A server (below) automatically.
 
 - **Drawing Command** panel: Write / Draw / SVG / Sketch tabs, size slider, TTS engine selector (Kokoro/Voxtral/System).

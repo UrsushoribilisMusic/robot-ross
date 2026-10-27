@@ -115,7 +115,8 @@ VOXTRAL_LANG_VOICES = {
 def _speak_voxtral(text, voice=None):
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:
-        print("  Voxtral: MISTRAL_API_KEY not set — skipping", file=sys.stderr)
+        print("  Voxtral: no API key; using system speech", file=sys.stderr)
+        _speak_fallback(text)
         return
     try:
         try:
@@ -123,7 +124,8 @@ def _speak_voxtral(text, voice=None):
         except ImportError:
             from mistralai import Mistral
     except ImportError:
-        print("  Voxtral: mistralai not installed — skipping", file=sys.stderr)
+        print("  Voxtral: SDK unavailable; using system speech", file=sys.stderr)
+        _speak_fallback(text)
         return
     client = Mistral(api_key=api_key)
     try:

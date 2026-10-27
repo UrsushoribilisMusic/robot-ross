@@ -1,0 +1,16 @@
+# Python 3.12 on Apple Silicon; installs tooling, not Ollama/model weights.
+pyserial>=3.5,<4
+Pillow>=10
+openpyxl>=3.1,<4
+vtracer>=0.6
+numpy<2
+sounddevice>=0.5
+soundfile>=0.12
+openai-whisper
+kokoro>=0.9
+espeakng-loader
+mistralai
+anthropic
+obsws-python>=1.7
+google-api-python-client
+google-auth-oauthlib

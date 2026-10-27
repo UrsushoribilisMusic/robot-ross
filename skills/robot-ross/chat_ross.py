@@ -15,7 +15,7 @@ Usage:
     python chat_ross.py --no-arm               # conversation only, no drawing (test mode)
 """
 
-import sys, os, argparse, subprocess, threading, json, re, time, urllib.request
+import sys, os, argparse, subprocess, threading, json, re, time, urllib.request, tempfile
 
 # â”€â”€ Infisical vault (loads ANTHROPIC_API_KEY, MISTRAL_API_KEY into env) â”€â”€â”€â”€â”€â”€â”€
 try:
@@ -47,6 +47,7 @@ SVG_DIR        = os.path.dirname(SKILLS_DIR)  # SVGs in robot-ross root
 
 sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, VOICE_DIR)
+sys.path.insert(0, HUENIT_DIR)
 
 # â”€â”€ Pre-made SVG catalogue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _discover_svgs():
@@ -80,17 +81,12 @@ def _get_recent_drawings(n=5):
 _quit_flag = threading.Event()
 
 def _keyboard_watcher():
-    try:
-        import msvcrt
-        while not _quit_flag.is_set():
-            if msvcrt.kbhit():
-                ch = msvcrt.getwch().lower()
-                if ch == 'q':
-                    _quit_flag.set()
-                    break
-            time.sleep(0.05)
-    except ImportError:
-        pass
+    if not sys.stdin.isatty(): return
+    from console_keys import getch
+    while not _quit_flag.is_set():
+        ch = getch(timeout=.1)
+        if ch and ch.lower() == b'q':
+            _quit_flag.set()
 
 # â”€â”€ Drawing state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _draw_lock        = threading.Lock()
@@ -106,10 +102,14 @@ def current_subject():
     with _draw_lock:
         return _draw_subject if (_draw_thread and _draw_thread.is_alive()) else None
 
-def start_draw(subject, buyer=None, size=80, feed=None, pyro=False, no_obs=True, no_arm=False, engine="kokoro"):
+def start_draw(subject, buyer=None, size=80, feed=None, pyro=False, no_obs=True, no_arm=False, engine="kokoro", action="sketch"):
     global _draw_thread, _draw_subject, _first_draw_done
 
-    cmd = [sys.executable, BOB_ROSS_PY, "sketch", subject, "--direct",
+    ready = os.path.join(tempfile.gettempdir(), 'huenit_ready.flag')
+    if not no_arm and not os.path.exists(ready):
+        speak('Please calibrate from the Control Center before starting a drawing.', force=True)
+        return
+    cmd = [sys.executable, BOB_ROSS_PY, action, subject, "--direct",
            "--engine", engine]
     if buyer:
         cmd += ["--buyer", buyer]
@@ -122,13 +122,11 @@ def start_draw(subject, buyer=None, size=80, feed=None, pyro=False, no_obs=True,
         cmd += ["--feed", str(feed)]
     if no_arm:
         cmd.append("--dry-run")
-    if not _first_draw_done and not no_arm:
-        cmd.append("--calibrate")
 
     def _run():
         global _draw_subject, _first_draw_done
-        subprocess.run(cmd)
-        _first_draw_done = True
+        result = subprocess.run(cmd)
+        _first_draw_done = result.returncode == 0
         with _draw_lock:
             _draw_subject = None
 
@@ -233,16 +231,14 @@ def _build_local_system(svgs, recent, drawing_subject, lang_label="English"):
     svg_list   = ", ".join(svgs.keys()) if svgs else "none"
     recent_str = ", ".join(recent) if recent else "none"
     status     = f"drawing {drawing_subject}" if drawing_subject else "idle"
-    lang_note  = f"
-Respond in {lang_label}." if lang_label != "English" else ""
+    lang_note  = f"\nRespond in {lang_label}." if lang_label != "English" else ""
     return LOCAL_SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status) + lang_note
 
 def _build_system(svgs, recent, drawing_subject, lang_label="English"):
     svg_list = ", ".join(svgs.keys()) if svgs else "none loaded"
     recent_str = "\n".join(f"  - {r}" for r in recent) if recent else "  (none yet this session)"
     status = f"Currently drawing: {drawing_subject} â€” arm is busy." if drawing_subject else "Idle â€” ready to draw."
-    lang_note = f"
-IMPORTANT: The visitor is speaking {lang_label}. Respond in {lang_label}." if lang_label != "English" else ""
+    lang_note = f"\nIMPORTANT: The visitor is speaking {lang_label}. Respond in {lang_label}." if lang_label != "English" else ""
     return SYSTEM_PROMPT.format(svg_list=svg_list, recent=recent_str, status=status) + lang_note
 
 def _parse_json_reply(reply, history):
@@ -319,7 +315,7 @@ def main():
 
     print("Robot Ross Showcase â€” starting up...")
     svgs = _discover_svgs()
-    
+
     from listen import WhisperListener
     listener = WhisperListener(model_size=args.whisper, language=args.lang, threshold=args.threshold)
     listener._load()
@@ -329,7 +325,7 @@ def main():
     global _tts_voice
     _tts_voice = _LANG_VOICE.get(args.lang or "english", None)
 
-    claude  = anthropic.Anthropic()
+    claude  = anthropic.Anthropic() if args.brain == 'haiku' else None
     history = []
     buyer   = None
 
@@ -345,11 +341,10 @@ def main():
             user_text = listener.listen()
             # Update voice and language label based on what Whisper detected
             if _tts_engine == "voxtral" and not args.lang:
-                global _tts_voice
                 _tts_voice = _LANG_VOICE.get(listener.last_lang, _LANG_VOICE["english"])
         except KeyboardInterrupt:
             break
-        
+
         if _quit_flag.is_set() or not user_text:
             continue
 
@@ -385,13 +380,18 @@ def main():
                     start_draw(subject, buyer=buyer, size=args.size, feed=args.feed, pyro=args.pyro, no_obs=args.no_obs, no_arm=args.no_arm, engine=args.engine)
                 else:
                     speak("No problem! What else?")
-        
+
         elif action == "svg":
             file = response.get("file", "")
             if not is_drawing():
-                # simplified SVG handling for now
+                if file not in svgs.values():
+                    speak('Please select a drawing from the available SVG catalogue.')
+                    continue
                 speak(text or "I'll draw that for you.")
-                start_draw(file, buyer=buyer, size=args.size, feed=args.feed, pyro=args.pyro, no_obs=args.no_obs, no_arm=args.no_arm, engine=args.engine)
+                speak('Shall I go ahead?')
+                confirm = listener.listen(prompt='Waiting for confirmation...')
+                if confirm and any(w in confirm.lower() for w in ('yes', 'yeah', 'sure', 'go', 'ok', 'do it')):
+                    start_draw(file, buyer=buyer, size=args.size, feed=args.feed, pyro=args.pyro, no_obs=args.no_obs, no_arm=args.no_arm, engine=args.engine, action='svg')
             else:
                 speak("I'm busy right now!", force=True)
         else:

@@ -163,7 +163,7 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
             ["qlmanage", "-t", "-s", "1200", "-o", out_dir, svg_path],
             capture_output=True, timeout=30,
         )
-        ql_out = svg_path + ".png"
+        ql_out = os.path.join(out_dir, os.path.basename(svg_path) + ".png")
         if os.path.exists(ql_out):
             os.rename(ql_out, png_path)
             return True

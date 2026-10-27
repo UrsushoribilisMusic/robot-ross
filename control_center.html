@@ -517,6 +517,7 @@ const SVG_ICONS = {
 // ══════════════════════════════════════════════════
 //  API CALLS
 // ══════════════════════════════════════════════════
+let lastJobNotice = null;
 async function fetchStatus(){
   try{
     const r = await fetch('/api/status');
@@ -526,7 +527,7 @@ async function fetchStatus(){
     document.getElementById('larm').textContent = d.arm_port || 'No port';
     // ollama
     setDot('dol', d.ollama ? 'on' : 'off');
-    document.getElementById('lol').textContent = d.ollama ? 'Apertus ready' : 'Ollama offline';
+    document.getElementById('lol').textContent = d.ollama ? `${d.model} ready` : 'AI model unavailable';
     // showcase
     const sc = d.showcase_running;
     setDot('dsc', sc ? 'on' : 'off');
@@ -554,6 +555,10 @@ async function fetchStatus(){
     jr.className = 'running' + (d.job_running ? ' on' : '');
     // disable execute while running
     document.querySelector('footer .bp').disabled = d.job_running;
+    if(d.last_job && d.last_job.id !== lastJobNotice){
+      lastJobNotice = d.last_job.id;
+      if(d.last_job.status === 'failed') addMsg('ross', `⚠️ ${d.last_job.message}`);
+    }
   }catch(e){ /* server not yet up */ }
 }
 
@@ -704,10 +709,12 @@ function doApprove(){
     const buyer = document.getElementById('inpBuyer').value.trim();
     const nar   = document.getElementById('togNar').checked;
     const tts   = document.getElementById('selTts').value;
+    const cam   = document.getElementById('togCam').checked;
     args = ['svg', pendingSvgPath, '--size', size];
     if(pendingSketchPrompt) args.push('--subject', pendingSketchPrompt);
     if(buyer) args.push('--buyer', buyer);
     if(!nar)  args.push('--no-voice');
+    if(!cam)  args.push('--no-obs');
     args.push('--engine', tts);
     pendingSvgPath = null;
     pendingSketchPrompt = null;
@@ -733,6 +740,11 @@ async function previewSketch(){
 }
 
 function doCancel(){
+  pendingSvgPath = null;
+  pendingSketchPrompt = null;
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollGen++;
+  fetch('/api/cancel', {method:'POST'});
   selSvg = null;
   document.querySelectorAll('.svgi').forEach(i=>i.classList.remove('on'));
   document.getElementById('pvBox').innerHTML='<div class="pvph">Select a file to preview</div>';

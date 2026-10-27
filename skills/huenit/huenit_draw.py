@@ -130,21 +130,21 @@ def pen_down(g):
     g.wait_motion()
 
 
-def _z_comp(dy):
-    """Z compensation string for a Y move of dy mm."""
-    dz = TILT_SLOPE * dy
+def _z_comp(dx, dy):
+    """Relative Z correction on the calibrated X/Y drawing plane."""
+    dz = TILT_SLOPE_X * dx + TILT_SLOPE * dy
     return f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
 
 
 def move_to(g, x, y):
     """Relative travel move (pen should be up)."""
-    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(y)} F{TRAVEL_FEED}", wait_ok=True)
+    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(x, y)} F{TRAVEL_FEED}", wait_ok=True)
     g.wait_motion()
 
 
 def draw_to(g, x, y):
     """Relative draw move (pen should be down)."""
-    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(y)} F{DRAW_FEED}", wait_ok=True)
+    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(x, y)} F{DRAW_FEED}", wait_ok=True)
     g.wait_motion()
 
 
@@ -210,12 +210,14 @@ def calibrate(g, size=None):
     size: requested drawing size in mm. If > 80, tilt calibration extends to cover it.
     """
     _log("CALIBRATION START")
+    if os.path.exists(READY_FLAG):
+        os.unlink(READY_FLAG)
     print("\n Calibration Mode")
     print("Step 1: Jog the tip until it TOUCHES the surface.")
     print("  W = up 0.5mm  |  S = down 0.5mm  |  Enter = confirm touching  |  Q = abort")
-    import msvcrt
+    from console_keys import getch
     while True:
-        ch = msvcrt.getch()
+        ch = getch()
         if ch in (b'\r', b'\n'):
             break
         if ch.lower() == b'q':
@@ -281,7 +283,7 @@ def calibrate(g, size=None):
                 print(f"\n  [{label}]  W=up 0.1mm | S=down 0.1mm | Enter=touching | Q=abort")
                 z_adj = 0.0
                 while True:
-                    ch = msvcrt.getch()
+                    ch = getch()
                     if ch in (b'\r', b'\n'):
                         return z_adj
                     if ch.lower() == b'q':

@@ -16,7 +16,8 @@ import os
 import sys
 import tempfile
 import platform
-import winsound
+if sys.platform == 'win32':
+    import winsound
 
 # ── Sample phrases (typical Robot Ross intro / commentary / outro) ────────────
 
@@ -30,6 +31,10 @@ SAMPLES = [
 
 def play_wav(path):
     """Play WAV via winsound — converts to int16 PCM first if needed."""
+    if sys.platform == 'darwin':
+        import subprocess
+        subprocess.run(['afplay', path], check=True)
+        return
     import wave, struct
     try:
         # Try direct play first (works if already int16 PCM)
