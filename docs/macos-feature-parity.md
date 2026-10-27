@@ -116,3 +116,7 @@ accuracy did not pass. Source inspection confirms40 mm relative commands on both
 axes and no wrapper enlargement at this size. Cause and measured-width-to-robot-
 axis identity remain unverified. Requested opposite-edge measurements; no
 firmware scaling, physical calibration or additional motion was changed.
+
+The operator confirmed opposite sides also measure45 and40 mm. Dimensional
+mismatch is consistent across this outline; no general scale correction was
+derived from a single size/location and no firmware setting was changed.
