@@ -130,21 +130,21 @@ def pen_down(g):
     g.wait_motion()
 
 
-def _z_comp(dy):
-    """Z compensation string for a Y move of dy mm."""
-    dz = TILT_SLOPE * dy
+def _z_comp(dx, dy):
+    """Relative Z correction on the calibrated X/Y drawing plane."""
+    dz = TILT_SLOPE_X * dx + TILT_SLOPE * dy
     return f" Z{dz:.3f}" if abs(dz) > 0.001 else ""
 
 
 def move_to(g, x, y):
     """Relative travel move (pen should be up)."""
-    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(y)} F{TRAVEL_FEED}", wait_ok=True)
+    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(x, y)} F{TRAVEL_FEED}", wait_ok=True)
     g.wait_motion()
 
 
 def draw_to(g, x, y):
     """Relative draw move (pen should be down)."""
-    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(y)} F{DRAW_FEED}", wait_ok=True)
+    g.send(f"G1 X{x:.3f} Y{y:.3f}{_z_comp(x, y)} F{DRAW_FEED}", wait_ok=True)
     g.wait_motion()
 
 

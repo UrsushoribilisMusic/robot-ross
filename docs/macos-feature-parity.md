@@ -72,3 +72,25 @@ The original UI's automatic browser opening is retained. Raw demo recordings
 belong in `~/Movies/Ambient-Field-Lens/`, outside the source repository. The
 demo story and daily capture plan are recorded separately in the Ambient
 Field Lens working checkout's `docs/demo-production-plan.md`.
+
+## 27 October: basic-shape X tilt correction
+
+During operator-run 40 mm square takes, pen contact was incomplete. Inspection
+found a definite defect: `huenit_draw.py` loads both saved tilt axes but travel
+and draw moves used only Y. Both now apply the relative plane correction
+`dz = tilt_slope_x * dx + tilt_slope * dy`. At the operator's current X slope
+0.01, this restores 0.4 mm correction across a 40 mm X move. This is a possible
+contributor, not a demonstrated sole cause of the failed take.
+
+All 19 hardware-free tests pass (15 port regressions plus four new motion tests).
+New checks cover positive/negative X, diagonal travel, retained Y/flat behavior
+and a complete square returning to the same XYZ without accumulated plane
+offset. Tests use a fake arm and forbid opening a serial port. No physical
+command was sent for this fix; a supervised hardware retry remains pending.
+Existing Control Center starts a fresh drawing subprocess, so the next shape
+job reads the updated script without a server restart.
+
+`z_up` is travel clearance after a correctly established paper-contact position,
+not drawing pressure. Lowering it does not compensate for a mistaken contact
+origin. Do not alter the operator's calibration file or order ledger as part
+of this code fix. Raw failed takes remain in the private capture dataset.
